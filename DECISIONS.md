@@ -1278,3 +1278,54 @@ outlier (e.g. a provider hiccup) would then set the timeout for every
 future call. Leaving the timeout at a round guessed number — rejected,
 exactly the kind of unmeasured constant this task exists to replace
 with data.
+
+## D-057 — The grader: shape-driven tolerant matching, designed from DEV, extra answers ignored
+
+**Date:** 2026-10-24
+
+**Decision:** `bench/grader.py`'s `classify_shape` is a total function
+over any string value (integer / `decimal_Ndp` / scientific / yes_no /
+list_like / string / empty — "string" is the catch-all), and only
+raises `ShapeParseError` for a non-string value. `shape_census` runs
+over DEV labels only and is written to `docs/grader.md` (8 shapes
+found live: decimal_1dp through decimal_4dp, integer, list_like,
+string, yes_no — no dev label is scientific-notation or empty, though
+both shapes are still handled and unit-tested). `count_unparseable`
+then runs over **all 257** real labels (dev + test) and returns a bare
+count (confirmed **0** against the real downloaded dataset) — the one
+place this project touches TEST label content directly, and it is
+restricted to printing/returning that single integer, never a value
+(CLAUDE.md rule 11's explicitly sanctioned exception). TOLERANT mode's
+numeric tolerance is `max(0.5 * 10^(exponent - decimals), 1e-9)`,
+derived from the label value's own written precision (so it scales
+correctly for both `"0.01"` and scientific-notation values like
+`"7.46e+21"`); strings are case/whitespace-normalized; lists are
+split and compared element-wise with the same rule recursively. Only
+label sub-answer *names* are ever scored — a predicted answer with no
+matching label name is counted (`n_extra_predicted`) but never
+compared against anything.
+
+**Why:** Classifying *every* real value (with "string" as a safe
+catch-all) rather than raising on anything unexpected means the
+format-only check over the full dataset is a meaningful robustness
+proof (it would still catch a genuinely malformed, non-string label)
+without ever needing to special-case content the grader hasn't seen.
+Deriving numeric tolerance from the label's own last written decimal
+place (D-045's same idea, reused here at the grading layer instead of
+the evidence layer) means the tolerance automatically matches whatever
+rounding convention each individual label actually used, instead of
+one fixed epsilon for the whole dataset. Ignoring (not penalizing)
+extra predicted names matches the smoke run's own observation
+(`docs/smoke-p1.md`, question 275: the model answered two sub-answers
+beyond what the label scored) — answering more than asked isn't itself
+a scoring-worthy mistake.
+
+**Alternatives rejected:** A single fixed epsilon (e.g. `1e-6`) for
+every numeric comparison — rejected, it would be far too strict for a
+label rounded to 0 decimal places and far too loose for one rounded to
+4. Penalizing extra predicted answers as wrong — rejected, the label
+schema only defines what *is* being asked; an extra, uncounted answer
+isn't evidence of a wrong one. Tuning the shape classifier against
+TEST label content to raise the dev-measured shape coverage — never
+done; the census is DEV-only by construction and the all-labels check
+reports only a count.
