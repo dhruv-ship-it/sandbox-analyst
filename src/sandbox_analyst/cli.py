@@ -16,6 +16,7 @@ from sandbox_analyst.agent import TraceWriter, run_agent
 from sandbox_analyst.agent.events import AgentEvent
 from sandbox_analyst.bench.dabench import Question, load_labels, load_questions
 from sandbox_analyst.bench.harness import DEFAULT_TOKEN_BUDGET, HeldOutRunRequired, run_eval
+from sandbox_analyst.bench.report import write_report
 from sandbox_analyst.bench.split import DEFAULT_QUESTIONS_PATH, SplitLockedError, load_split
 from sandbox_analyst.config import Settings
 from sandbox_analyst.llm import LLMConfigError, make_llm
@@ -286,6 +287,15 @@ def cmd_eval(
     return 0
 
 
+def cmd_report(run_names: list[str]) -> int:
+    md_path, json_path, failure_paths = write_report(run_names)
+    print(f"wrote {md_path}")  # noqa: T201
+    print(f"wrote {json_path}")  # noqa: T201
+    for path in failure_paths:
+        print(f"wrote {path}")  # noqa: T201
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="sa", description="Sandbox Analyst CLI")
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -317,6 +327,11 @@ def build_parser() -> argparse.ArgumentParser:
         help="required (alongside a clean, frozen-*-tagged tree) to load --split test",
     )
 
+    report_parser = subparsers.add_parser(
+        "report", help="build a combined metrics report from one or more eval runs"
+    )
+    report_parser.add_argument("run_names", nargs="+", metavar="run-name")
+
     return parser
 
 
@@ -336,6 +351,8 @@ def main(argv: list[str] | None = None) -> int:
             args.token_budget,
             args.final_held_out_run,
         )
+    if args.command == "report":
+        return cmd_report(args.run_names)
     parser.error(f"unknown command: {args.command}")
     return 2
 

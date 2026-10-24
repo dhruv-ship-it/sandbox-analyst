@@ -58,6 +58,40 @@ def test_dabench_smoke_rejects_an_unrecognized_split_option():
         build_parser().parse_args(["dabench-smoke", "--split", "test"])
 
 
+def test_eval_parses_defaults():
+    args = build_parser().parse_args(["eval", "--run-name", "r1"])
+    assert args.command == "eval"
+    assert args.split == "dev"
+    assert args.run_name == "r1"
+    assert args.concurrency == 6
+    assert args.limit is None
+    assert args.final_held_out_run is False
+
+
+def test_eval_requires_run_name():
+    with pytest.raises(SystemExit):
+        build_parser().parse_args(["eval"])
+
+
+def test_eval_accepts_test_split_and_final_held_out_run_flag():
+    args = build_parser().parse_args(
+        ["eval", "--split", "test", "--run-name", "r1", "--final-held-out-run"]
+    )
+    assert args.split == "test"
+    assert args.final_held_out_run is True
+
+
+def test_report_parses_one_or_more_run_names():
+    args = build_parser().parse_args(["report", "r1", "r2", "r3"])
+    assert args.command == "report"
+    assert args.run_names == ["r1", "r2", "r3"]
+
+
+def test_report_requires_at_least_one_run_name():
+    with pytest.raises(SystemExit):
+        build_parser().parse_args(["report"])
+
+
 # ---- select_smoke_questions ----
 
 

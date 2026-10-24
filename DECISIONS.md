@@ -1442,3 +1442,49 @@ false (each thread's limiter would independently allow up to
 point of client-side pacing). Making `check_budget` itself atomic
 (e.g. a file lock spanning read-then-decide-then-append) -- rejected
 as unnecessary complexity given the budget's own built-in margin.
+
+## D-062 — The bootstrap resamples questions (rows), paired across runs; report outputs and naming
+
+**Date:** 2026-10-24
+
+**Decision:** `bench/stats.paired_bootstrap_ci(rows, statistic, n_resamples=10_000, seed=2026)`
+treats each element of `rows` as everything belonging to one question
+(a single value for a lone run, or one value per run when pooling --
+D-058's `results.jsonl` already keys everything by question id, which
+is what makes this pairing possible). Every resample draws question
+*rows* with replacement, never individual (question, run) pairs, so a
+question's several runs are always kept or dropped together. A plain
+unpaired `bootstrap_ci` is the same function with one-element rows.
+UASQ gets its own bootstrap (`report._uasq_bootstrap_ci`, same
+row-resampling shape) since it's a ratio-of-sums, not a mean, and a
+mean-based resample over a per-question ratio would give equal-sized
+questions equal resampling weight regardless of how many sub-answers
+each one actually has. `sa report run-a run-b run-c` writes its
+combined `report.md`/`report.json` to `runs/eval/<run-a>+<run-b>+
+<run-c>/`, and one `failures.md` per individual run name under that
+run's own existing directory -- the task didn't specify a combined
+output path, so `"+".join(run_names)` was chosen as the simplest rule
+that works for any number of runs, including one.
+
+**Why:** Pairing is what makes "3 dev runs" a more informative
+estimate than "222 independent question-attempts" -- the whole reason
+to run the dev set 3 times (per the project lead's own framing) is to
+separate the model's run-to-run stochastic variance from each
+question's own difficulty; resampling (question,run) pairs
+independently would blur that distinction back together and understate
+how much variance comes from *which question* rather than *which run*.
+10,000 resamples at dev scale (74 questions x 3 runs, every accuracy +
+ablation + per-level combination) measured at ~80 seconds real
+wall-clock for one full `sa report` call -- a one-time cost per report,
+not a hot path, so no further optimization (e.g. fewer resamples, or a
+numpy dependency this project's own rules forbid outside the sandbox
+image -- D-002) was pursued.
+
+**Alternatives rejected:** Resampling individual (question, run) data
+points independently (the textbook single-sample bootstrap) --
+rejected, exactly the design this decision's "why" argues against.
+Deriving UASQ's CI from a mean-based resample of each question's own
+ratio -- rejected, it would silently treat a 1-sub-answer question and
+an 8-sub-answer question as equally "one data point," which UASQ's own
+definition (pooled correct/total across every sub-answer) explicitly
+does not do.
