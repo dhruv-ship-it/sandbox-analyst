@@ -39,3 +39,108 @@ jobs:
 
       - name: Run tests
         run: uv run pytest
+
+  # Builds and pushes the production image to GHCR. Only on a push to main, and only
+  # after the test job above is green -- a PR branch or a failing push never produces
+  # an image. See docs/deploy.md for what to do with the image once it's pushed.
+  image:
+    name: Build and push to ghcr.io
+    needs: test
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      image: ${{ steps.naming.outputs.image }}
+      sha: ${{ steps.naming.outputs.sha }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Work out the image name and tag
+        id: naming
+        # GHCR requires a lower-cased owner, so this is derived rather than typed out
+        # literally -- it resolves to ghcr.io/dhruv-ship-it/sandbox-analyst today.
+        run: |
+          owner=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
+          echo "image=ghcr.io/${owner}/sandbox-analyst" >> "$GITHUB_OUTPUT"
+          echo "sha=${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          build-args: |
+            APP_VERSION=${{ steps.naming.outputs.sha }}
+          tags: |
+            ${{ steps.naming.outputs.image }}:latest
+            ${{ steps.naming.outputs.image }}:${{ steps.naming.outputs.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          provenance: false
+
+      - name: Say what to paste into App Service
+        run: |
+          {
+            echo "### Image pushed"
+            echo
+            echo '```'
+            echo "${{ steps.naming.outputs.image }}:latest"
+            echo "${{ steps.naming.outputs.image }}:${{ steps.naming.outputs.sha }}"
+            echo '```'
+            echo
+            echo "The package is private until you make it public: GitHub -> your"
+            echo "profile -> Packages -> sandbox-analyst -> Package settings ->"
+            echo "Change visibility -> Public. See docs/deploy.md for the rest."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  # Optional: redeploy the Azure Web App automatically once the new image is pushed.
+  # ZoneWise (the reference project) has no equivalent step -- its own deploy is a
+  # manual "Restart" click in the Azure portal after the image workflow finishes
+  # (docs/DEPLOY.md there), which is also this project's default. This job exists so
+  # that setting one secret turns on continuous deployment without any further code
+  # change; leaving it unset keeps the manual-restart flow working exactly as-is.
+  deploy-azure:
+    name: Redeploy to Azure (optional)
+    needs: image
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check whether continuous deployment is configured
+        id: check
+        run: |
+          if [ -n "${{ secrets.AZURE_WEBAPP_PUBLISH_PROFILE_SA }}" ] && [ -n "${{ vars.AZURE_WEBAPP_NAME_SA }}" ]; then
+            echo "configured=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "configured=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Deploy the new image to Azure Web App
+        if: steps.check.outputs.configured == 'true'
+        uses: azure/webapps-deploy@v3
+        with:
+          app-name: ${{ vars.AZURE_WEBAPP_NAME_SA }}
+          publish-profile: ${{ secrets.AZURE_WEBAPP_PUBLISH_PROFILE_SA }}
+          images: ${{ needs.image.outputs.image }}:${{ needs.image.outputs.sha }}
+
+      - name: Say what happened
+        run: |
+          if [ "${{ steps.check.outputs.configured }}" = "true" ]; then
+            echo "Deployed ${{ needs.image.outputs.sha }} to Azure." >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "### Azure redeploy skipped" >> "$GITHUB_STEP_SUMMARY"
+            echo >> "$GITHUB_STEP_SUMMARY"
+            echo "Set the **AZURE_WEBAPP_PUBLISH_PROFILE_SA** secret and the" >> "$GITHUB_STEP_SUMMARY"
+            echo "**AZURE_WEBAPP_NAME_SA** repo variable to turn this on. Until then," >> "$GITHUB_STEP_SUMMARY"
+            echo "redeploy by hand: portal -> the web app -> Restart (docs/deploy.md)." >> "$GITHUB_STEP_SUMMARY"
+          fi

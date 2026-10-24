@@ -66,6 +66,15 @@ COPY src/ ./src/
 # install the project itself now that its source is in place
 RUN uv sync --frozen --no-dev
 
+# The running image's own identity: /api/health reports this as `version`. There is
+# no .git directory in this image (.dockerignore), so Settings.app_version's git-SHA
+# fallback can't work at runtime -- the image workflow passes the real commit SHA as
+# a build arg instead (--build-arg APP_VERSION=<short sha>). Declared last, after the
+# expensive dependency/project layers above, so a new commit's SHA never invalidates
+# their cache.
+ARG APP_VERSION=unknown
+ENV APP_VERSION=${APP_VERSION}
+
 # --- stage 1 output (Prompt 6 adds this) -----------------------------------------
 #
 # COPY --from=web /build/dist ./web/dist

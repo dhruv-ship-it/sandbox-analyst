@@ -1952,3 +1952,50 @@ close real gaps (e.g. an accidentally-committed `.mypy_cache/` or a
 stray `web/node_modules/` from local frontend work would otherwise
 bloat the build context once Prompt 6 adds `web/`).
 
+## D-079 — CI's image job mirrors ZoneWise's GHCR push exactly; Azure redeploy is new (ZoneWise has none to mirror)
+
+**Date:** 2026-10-25
+
+**Decision:** `.github/workflows/ci.yml` keeps the existing `test` job
+unchanged and adds `image` (builds/pushes
+`ghcr.io/dhruv-ship-it/sandbox-analyst:latest` and `:<short sha>`,
+`needs: test`, gated to `push` + `refs/heads/main`, `packages: write`,
+`APP_VERSION=<short sha>` passed as a `--build-arg`) using the exact
+same steps as ZoneWise's `image.yml` job (owner lower-casing, short-SHA
+tagging, `docker/build-push-action@v6` with `cache-from`/`cache-to:
+type=gha`). A third job, `deploy-azure`, is new -- checked ZoneWise's
+own `.github/workflows/` and `docs/DEPLOY.md` directly (read-only
+reference) and confirmed it has **no** automatic Azure-redeploy step at
+all: its own documented flow is "image workflow runs, then a human
+clicks Restart in the Azure portal," which is also this project's
+default/fallback. `deploy-azure` is guarded on two things being present
+-- the `AZURE_WEBAPP_PUBLISH_PROFILE_SA` secret and an
+`AZURE_WEBAPP_NAME_SA` repo variable (the app name, not secret) -- and
+cleanly no-ops (prints why, in the step summary) when either is
+missing, which is the expected state today since the Azure Web App
+doesn't exist until Task 6 is done by hand.
+
+**Why:** The task instruction was explicitly conditional ("if ZoneWise
+triggers Azure to pull the new image... mirror that step"), and it
+doesn't -- so there is nothing to copy there, only to add net-new,
+carefully guarded so it changes nothing about today's deploy story
+(still manual, still matching ZoneWise's own proven pattern) until
+someone deliberately sets the secret. The `APP_VERSION` build-arg
+exists because the running container has no `.git` directory
+(`.dockerignore`) for `Settings.app_version`'s git-SHA fallback to use
+at runtime -- baking the real commit SHA in at build time is what makes
+`GET /api/health`'s `version` field meaningful in production at all,
+and tying it to the same short SHA used for the image tag means "the
+version the container reports" and "the tag that container was built
+from" are always the same string.
+
+**Alternatives rejected:** Inventing an Azure CD mechanism and
+presenting it as "what ZoneWise does" -- rejected as inaccurate; the
+task's own phrasing already anticipates "if" ZoneWise has this, so
+reporting the true negative (checked, it doesn't) is the honest answer,
+with the optional job added as separate, clearly-labeled new scope.
+Requiring `AZURE_WEBAPP_NAME_SA` as a second secret instead of a plain
+repo variable -- rejected, the app name isn't sensitive and a plain
+variable is one fewer thing for the user to mark as a secret
+unnecessarily.
+
