@@ -860,3 +860,97 @@ instructions") — rejected, that's a content-based heuristic that will
 always miss a rephrasing; neutralizing the exact delimiter strings
 (the actual thing being defended) is precise and can't be talked
 around by rewording the attack.
+
+## D-043 — One shared AgentEvent schema; a `TraceWriter` is just an `on_event` subscriber
+
+**Date:** 2026-10-24
+
+**Decision:** `agent/events.py` defines one frozen dataclass,
+`AgentEvent(run_id, seq, ts, type, attempt, payload)`, with `payload` a
+plain JSON-serializable `dict`. `EventEmitter` is the only thing that
+assigns `run_id`/`seq`/`ts` and forwards the result to an optional
+`on_event` callback. `TraceWriter` (`agent/trace.py`) is a callable
+class that *is* that `on_event` callback -- it has no special
+relationship with the emitter beyond being handed to it. Large binary
+payloads (matplotlib PNGs) never go in `payload`; the agent loop writes
+them to `runs/artifacts/<run_id>/` and puts the file paths in the event
+instead.
+
+**Why:** This schema is deliberately reused as the SSE stream schema in
+P4 (see docs/PLAN.md) -- designing it as "one dataclass + one callback
+protocol" now means the API layer can attach its own `on_event`
+(stream to the client) alongside the CLI's (print + trace) with zero
+changes to the agent loop. Keeping `payload` plain-dict-shaped (no
+nested dataclasses, no bytes) means `json.dumps` always works on it
+without a custom encoder.
+
+**Alternatives rejected:** A dedicated event bus / pub-sub class —
+rejected, the agent loop only ever has 0 or 1 subscriber at a time (the
+CLI composes "write trace" and "print timeline" into one closure
+itself); a full bus is unused generality. Inlining images as base64 in
+the payload — rejected, bloats every trace line and every (future) SSE
+frame for data the viewer can instead fetch once by reference.
+
+## D-044 — `FinalAnswer` JSON is extracted with a brace-depth scanner, not a regex
+
+**Date:** 2026-10-24
+
+**Decision:** `agent/answer.py`'s `extract_json` finds the first
+balanced top-level `{...}` span by walking the text and tracking brace
+depth (ignoring braces inside quoted strings), rather than matching
+`\{.*\}` or similar. It checks inside a fenced code block first (if the
+reply has one), then falls back to scanning the raw reply.
+
+**Why:** A greedy `\{.*\}` regex over a whole reply happily consumes
+past the real end of the JSON object if the model adds any trailing
+prose containing a brace, and a non-greedy version breaks as soon as
+the JSON itself contains a nested object (which `FinalAnswer`'s
+`answers` list always does). A brace-depth scanner gets the exact
+object boundary right either way, including when a string value
+contains a literal `{` or `}`.
+
+**Alternatives rejected:** Regex-only extraction — rejected for the
+reason above. Requiring the model's entire reply to be bare JSON with
+no surrounding text — rejected, real provider replies routinely wrap
+JSON in a fenced block even when explicitly asked not to.
+
+## D-045 — Evidence checking: numbers first, then lists, then substrings; a known ambiguity is left open
+
+**Date:** 2026-10-24
+
+**Decision:** `agent/evidence.py` checks each answer value in this
+order: (1) if the whole value parses as one number (after unwrapping
+optional `[...]`/`(...)` brackets), compare it against every number
+found in stdout, passing if stdout's number rounds to the answer's own
+decimal places *or* is within relative `1e-9`; (2) else if the value
+contains a comma, split on commas and require every element to pass
+this same check recursively; (3) else, do a case-insensitive,
+whitespace-normalized substring check. Numbers are extracted from
+stdout with a single regex pass that treats thousands-grouped digits
+(`12,345`) as one token, so a longer number is never mistaken for
+containing a shorter one as a substring (`14.5` does not evidence
+`4.5`).
+
+**Why:** Trying the single-number parse *before* the list split is
+what resolves the one real ambiguity in this scheme: `"12,345"` could
+be one number or a two-element list `["12", "345"]`. Preferring "it's a
+number if it parses as one, whole-string, after stripping thousands
+separators" matches how DABench labels actually look (rounded numbers,
+occasionally with thousands separators) far more often than a
+two-element list would.
+
+**Known limit, left open rather than fixed:** a *list* whose own
+elements use thousands separators (e.g. `"1,234, 5,678"`) still gets
+split on every comma, including the ones inside each element, because
+the list-splitting step doesn't re-run the single-number check on the
+raw unsplit text before splitting. Closing this would need look-ahead
+across comma-separated groups of exactly three digits, which is more
+complexity than any real dev-set label has needed so far; documenting
+the gap here is cheaper than guessing at a fix with no failing example
+to test it against.
+
+**Alternatives rejected:** Treating any value with a comma as a list
+first (checking single-number second) — rejected, this is the
+ordering that gets the far more common `"12,345"`-is-one-number case
+wrong. A full tokenizer/parser for answer values — rejected as
+over-engineering for a format this simple.
