@@ -541,3 +541,98 @@ do the Python-idiomatic thing on its own.
 
 **Alternatives rejected:** `except BaseException` for maximal safety
 net — rejected, would misreport a clean `SystemExit` as a crash.
+
+## D-029 — `FORBIDDEN_CALL` blocks bare references, not just calls
+
+**Date:** 2026-10-24
+
+**Decision:** `FORBIDDEN_CALL` fires on any `ast.Name` in `Load` context
+whose id is in the denylist (`eval`, `getattr`, ...) — not only when
+that name is the function of an `ast.Call`.
+
+**Why:** Checking only `ast.Call(func=Name(...))` would miss aliasing
+(`x = eval; x(code)`), which is a trivial bypass of a call-site-only
+check. These 15 names have no legitimate use in a CSV-analysis script,
+so blocking every reference to them (not just every call) has no
+real cost in false positives.
+
+**Alternatives rejected:** Call-site-only detection — rejected as
+trivially bypassable by aliasing.
+
+## D-030 — `UNSAFE_WRITE` and `PICKLE` fail closed on non-literal inputs
+
+**Date:** 2026-10-24
+
+**Decision:** When `open()`'s mode, or `allow_pickle`'s value, is not a
+literal the checker can read directly (e.g. a variable instead of a
+string/bool constant), the checker blocks rather than passing it
+through.
+
+**Why:** The checker's whole value proposition is "provably safe from
+the source text alone." A non-literal value can't be proven safe
+without executing the code, which the checker must never do — so the
+only sound choice is to treat "can't tell" as "treat as unsafe."
+
+**Alternatives rejected:** Treating unverifiable values as safe (fail
+open) — rejected, defeats the purpose of the check.
+
+## D-031 — `PICKLE`'s `allow_pickle=True` check doesn't verify the call is `numpy.load`
+
+**Date:** 2026-10-24
+
+**Decision:** Any call carrying a literal `allow_pickle=True` keyword
+is flagged, regardless of what function is being called or what module
+it came from.
+
+**Why:** No function outside `numpy.load` (and a few numpy-family
+loaders) accepts an `allow_pickle` keyword at all — passing it to
+anything else is a `TypeError` at runtime, so it would never appear in
+real code. Checking for the keyword's presence is therefore precise
+without needing to track which module `np`/`numpy` was imported as.
+
+**Alternatives rejected:** Resolving the call's base object to confirm
+it's actually `numpy` — rejected as unnecessary complexity (import-alias
+tracking) for no precision gain.
+
+## D-032 — `guard/policy.py` hardcodes `/work` instead of importing it from `sandbox/base.py`
+
+**Date:** 2026-10-24
+
+**Decision:** `policy.WORK_DIR = "/work"` is a separate, independent
+constant from `sandbox.base.WORKDIR`, not imported from it.
+
+**Why:** The checker and the sandbox are described throughout this
+project as two independently-testable security layers (D-009); the
+checker's test suite (`tests/guard/`) should be able to run — and be
+reasoned about — with zero dependency on the sandbox package. The
+duplication is two lines of string, not worth a cross-package import
+for.
+
+**Alternatives rejected:** Importing `WORKDIR` from `sandbox.base` —
+rejected, adds a real dependency between the two layers for a trivial
+string constant, and makes the checker's test suite not stand alone.
+
+## D-033 — Two static-checker bypasses found and accepted, not closed
+
+**Date:** 2026-10-24
+
+**Decision:** 30 minutes of red-teaming `check()` in isolation (no
+sandbox) found two real bypasses — format-string attribute traversal
+(`"{0.__class__}".format(x)`) and aliasing the `open` builtin before
+calling it. Both are captured as `xfail(strict=True)` tests
+(`tests/guard/test_bypass_hunt.py`) and documented in
+`docs/security.md`, rather than being closed.
+
+**Why:** Closing either one at the AST layer requires either scanning
+string *contents* (false-positives on any benign string containing
+`__`) or a real dataflow/alias-tracking pass (well beyond "AST-only,
+fast feedback"). Both bypasses only grant access to things the sandbox
+already permits a cooperative script to do (introspect its own
+objects; write inside its own ephemeral, non-sensitive filesystem) —
+neither is a sandbox escape, which is the actual property that
+matters (D-009).
+
+**Alternatives rejected:** Adding ad hoc heuristics for each (e.g.
+scanning strings for `__`, or flagging any two-string-literal call) —
+rejected after confirming they would misfire on ordinary benign code
+(docstrings, `re.sub` with two string literals).
