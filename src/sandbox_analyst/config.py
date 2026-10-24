@@ -45,3 +45,23 @@ class Settings(BaseSettings):
     # Client-side request spacing, per provider (requests/minute).
     llm_rpm_nim: float = 30
     llm_rpm_groq: float = 25
+
+    # --- Public API (see docs/api.md) ---
+    port: int = 8000
+    app_version: str | None = None  # falls back to the current git SHA if unset
+    sa_data_dir: str = "data/api"  # run store traces/artifacts; /home/sa-data in production
+    sa_trust_proxy: bool = False  # true behind Azure App Service's own front end
+
+    # Upload validation for POST /api/datasets -- separate from max_upload_mb
+    # above (which guards what reaches the sandbox), since this guards the
+    # host-side CSV profiling step itself (see D-070).
+    api_max_upload_mb: float = 5.0
+    api_max_rows: int = 200_000
+    api_max_cols: int = 100
+    api_upload_ttl_s: int = 3600
+
+    # Public-safety limits (see D-071).
+    sa_rate_limit_per_ip_hour: int = 5
+    sa_rate_limit_per_ip_day: int = 20
+    sa_rate_limit_global_day: int = 50
+    sa_max_concurrent_runs: int = 2

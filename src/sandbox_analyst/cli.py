@@ -296,6 +296,18 @@ def cmd_report(run_names: list[str]) -> int:
     return 0
 
 
+def cmd_serve() -> int:
+    """Run the public API with uvicorn, honoring Settings.port (the PORT env var)."""
+    import uvicorn
+
+    from sandbox_analyst.api import build_app
+
+    settings = Settings()
+    app = build_app(settings)
+    uvicorn.run(app, host="0.0.0.0", port=settings.port)
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="sa", description="Sandbox Analyst CLI")
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -332,6 +344,8 @@ def build_parser() -> argparse.ArgumentParser:
     )
     report_parser.add_argument("run_names", nargs="+", metavar="run-name")
 
+    subparsers.add_parser("serve", help="run the public API (uvicorn, host 0.0.0.0, PORT env var)")
+
     return parser
 
 
@@ -353,6 +367,8 @@ def main(argv: list[str] | None = None) -> int:
         )
     if args.command == "report":
         return cmd_report(args.run_names)
+    if args.command == "serve":
+        return cmd_serve()
     parser.error(f"unknown command: {args.command}")
     return 2
 

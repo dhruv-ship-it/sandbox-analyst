@@ -1847,3 +1847,45 @@ not contain `/`, `\`, or `..` -- rejected as weaker than a full allowed-
 pattern match; a fixed regex that matches the agent's own naming scheme
 exactly is strictly safer and no harder to write.
 
+## D-076 — Production sandbox budget ledger path reuses `ModalSandbox`'s existing constructor parameter; SSE drops `Request.is_disconnected()`
+
+**Date:** 2026-10-25
+
+**Decision:** `build_app`'s `sandbox_factory` constructs
+`ModalSandbox(settings, ledger_path=SA_DATA_DIR/"sandbox_ledger.jsonl")`
+directly -- `ModalSandbox.__init__` already accepts an optional
+`ledger_path` (predates this task), so routing the budget ledger under
+`SA_DATA_DIR` needed no sandbox-code change, only a different call site
+in the API layer. Separately, `GET /api/runs/{id}/events`'s SSE
+generator does NOT call Starlette's `Request.is_disconnected()` to
+detect an abandoned client; the loop relies solely on
+`asyncio.wait_for(queue.get(), timeout=15)` plus the run's own terminal
+state/close-sentinel to end the generator.
+
+**Why:** For the ledger path: exactly the same "reuse an existing seam
+instead of editing agent/sandbox code" approach as D-067's artifact/
+trace handling. For dropping `is_disconnected()`: building this task's
+own test suite against `TestClient` reproduced a real, reliably
+repeatable hang -- opening an SSE stream and calling
+`await request.is_disconnected()` inside the generator's wait loop
+never returned under Starlette's `TestClient` transport (confirmed by
+isolating the exact line with staged, flushed prints; removing only
+that call made the identical test pass immediately). This is a known
+category of issue with that call across various ASGI execution
+contexts, not something safe to assume away for a public endpoint.
+Since the generator already terminates deterministically once the run
+reaches a terminal status (the worker thread always pushes a close
+signal in its `finally` block, and the run itself is bounded by
+`agent/loop.py`'s own `TIME_BUDGET_S=300s`), disconnect detection isn't
+load-bearing for correctness -- worst case, an abandoned connection's
+generator keeps a small amount of server state alive for at most one
+run's duration, which is an acceptable cost at this demo's scale.
+
+**Alternatives rejected:** Keeping `is_disconnected()` and papering over
+the hang with a timeout wrapper around it -- rejected as treating a
+known-flaky primitive as load-bearing when the design doesn't actually
+need it; simpler to remove the dependency entirely. Pinning the
+investigation to "maybe it's a TestClient-only artifact, so it's safe
+in production" -- rejected as an unverified assumption not worth
+risking against a real, reproduced failure.
+
