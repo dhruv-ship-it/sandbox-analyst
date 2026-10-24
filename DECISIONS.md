@@ -981,3 +981,126 @@ attempts — rejected, it would re-send the preview block repeatedly
 (token cost) and makes "no message reveals the attempt count" harder
 to reason about (a growing message list is itself a count, even if no
 message states one in words).
+
+## D-047 — `run_agent` calls `sandbox_factory()` exactly once per run, not once per attempt
+
+**Date:** 2026-10-24
+
+**Decision:** `agent/loop.py`'s `run_agent` calls `sandbox_factory()`
+a single time at the start of a run, uses the returned `Sandbox` as a
+context manager for the whole run, uploads the CSV once, and calls
+`.run(code)` once per attempt on that same object.
+
+**Why:** D-006 already establishes that *attempt-level* freshness is
+`ModalSandbox.run()`'s own job -- it creates and terminates a real
+Modal sandbox internally on every call, so the `run_agent` layer
+doesn't need to construct a new Python `Sandbox` object per attempt to
+get that property. Calling the factory once also matches the `Sandbox`
+protocol's documented contract ("files uploaded earlier are available
+to every run") and means `FakeSandbox` in tests can be constructed
+once with a queue of scripted per-attempt results, rather than needing
+a fresh scripted object assembled for every attempt.
+
+**Alternatives rejected:** Calling `sandbox_factory()` once per
+attempt — rejected, it would duplicate the freshness guarantee
+`ModalSandbox.run()` already provides, require re-uploading the CSV on
+every attempt, and would need a factory that returns a *different*
+`FakeSandbox` per call in tests, instead of one object holding the
+whole scripted sequence.
+
+## D-048 — `run_agent`'s stop conditions for repeated failure only cover identical code or identical *consecutive* exec-error signatures
+
+**Date:** 2026-10-24
+
+**Decision:** The `"repeated_failure"` stop condition fires on exactly
+two triggers: (a) the generated code is byte-identical to *any* earlier
+attempt's code in this run (checked before the checker or sandbox ever
+sees it -- the code is never executed), or (b) a Python exception
+raised by the script has the same normalized `(name, value)` signature
+as the *immediately preceding* attempt's exception. Checker violations,
+timeouts, crashes, and evidence failures do not get their own
+consecutive-signature check -- only the identical-code check applies to
+them, and that check applies regardless of whether the earlier,
+identical attempt itself succeeded or failed.
+
+**Why:** The task's own wording ties "error signature" to "type +
+message", which is exactly an `ExecError`'s `(name, value)`; nothing in
+the spec asks for signature-matching on checker/evidence/timeout
+observations, and those already have a safety net via the
+identical-code check. Applying the identical-code check unconditionally
+(not just after a failure) is deliberate: it is cheap, and a model that
+resubmits byte-identical code is stuck regardless of why.
+
+**Known trade-off:** if an evidence check fails only because the
+*answer step* misread otherwise-correct stdout, the honest repair is
+to resubmit the same (correct) code and let the answer step try again
+-- but resubmitting identical code always stops the run as
+`repeated_failure`, even in this case. This is accepted as the cost of
+a cheap, unconditional check rather than threading "was the previous
+identical attempt's *code* actually fine" through the comparison.
+
+**Alternatives rejected:** Generalizing the signature check to every
+observation kind — rejected as reading more into the spec than it
+states. Exempting the identical-code check when the earlier attempt's
+code executed successfully — rejected as the one case this would need
+to special-case is not explicitly required, and doing so would make
+"byte-identical" a conditional check instead of the simple, absolute
+one the spec describes.
+
+## D-049 — Per-attempt sandbox cost is estimated from `ExecResult.duration_ms`, not read back from the ledger file
+
+**Date:** 2026-10-24
+
+**Decision:** `agent/loop.py` computes each attempt's `est_usd` by
+calling `sandbox.ledger.estimate_cost_usd(...)` directly on the
+attempt's own `duration_ms` (plus the configured CPU/memory
+reservation), and sums that across attempts for `AgentResult`'s
+per-run total. It never reads `runs/sandbox_ledger.jsonl` back to
+compute a run's cost.
+
+**Why:** The ledger file (`ModalSandbox.run()`'s own side effect) is a
+lifetime-cumulative total across every run the process has ever made,
+with no run-id boundaries recorded in it -- there's no way to slice
+"just this run's share" back out of it. `estimate_cost_usd` is already
+a pure function of `(alive_s, cpu, memory_gib, rates)` with no file
+I/O, so calling it a second time with the attempt's own duration gives
+an equally valid lower-bound estimate (D-007) scoped correctly to one
+run, and it works identically for `FakeSandbox` in tests (which never
+writes to the ledger at all).
+
+**Alternatives rejected:** Reading the ledger file's tail after each
+run and diffing against a pre-run snapshot — rejected, fragile under
+any concurrent run and adds file I/O for a value `run_agent` can
+compute directly from data it already has.
+
+## D-050 — The attempt loop's control flow is one internal exception (`_StopRun`), never a return value threaded through `continue`/`break`
+
+**Date:** 2026-10-24
+
+**Decision:** `_run_attempts` has a `NoReturn` return type: every path
+through it ends by either `continue`-ing to the next attempt or
+raising `_StopRun(status, ...)` -- including success (`"answered"`)
+and the natural fall-through after 4 attempts (`"failed"`). `run_agent`
+catches exactly one `_StopRun` and builds `AgentResult` from its
+attributes. Per-attempt bookkeeping (token/latency totals, the set of
+seen code strings, the consecutive-crash counter, the last exec-error
+signature) lives on one mutable `_RunState` object threaded through
+both functions, rather than as a chain of returned tuples.
+
+**Why:** The loop has many distinct terminal conditions (answered,
+failed, repeated_failure, tool_failure, budget_exceeded, llm_error)
+that can each fire from several different places in the attempt body.
+Modeling every one of them as a `raise` with the terminal status and
+whatever evidence it's carrying (the answer, the exec result, the
+code) keeps each exit point a single, self-contained statement instead
+of a `status = ...; break` pattern repeated at every exit, and the
+`NoReturn` annotation makes "this function always ends by raising"
+checkable by a reader (and by `ruff`/a type checker) rather than just
+asserted in a comment.
+
+**Alternatives rejected:** Returning a `(status, ...)` tuple or sentinel
+object from `_run_attempts` and having every call site check it before
+deciding to `continue` -- rejected, it's the same number of exit points
+with none of the benefit (every `continue` site would still need the
+full status-tuple construction logic, just without `raise`'s "this
+really does stop everything" guarantee).

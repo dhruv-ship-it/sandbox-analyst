@@ -1,9 +1,10 @@
-"""The agent: dataset profiling, events/traces, the answer schema, and evidence checks."""
+"""The agent: dataset profiling, events/traces, the answer schema, evidence checks, and the loop."""
 
 from .answer import AnswerItem, AnswerParseError, FinalAnswer, extract_json, parse_final_answer
 from .codeparse import extract_code
 from .events import AgentEvent, EventEmitter, EventType, OnEvent, new_run_id
 from .evidence import EvidenceResult, all_evidenced, check_evidence
+from .loop import AgentResult, AttemptRecord, run_agent
 from .profile import ColumnProfile, DatasetProfile, profile_csv, to_prompt_text
 from .trace import TraceWriter
 
@@ -27,4 +28,7 @@ __all__ = [
     "check_evidence",
     "all_evidenced",
     "extract_code",
+    "run_agent",
+    "AgentResult",
+    "AttemptRecord",
 ]
