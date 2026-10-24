@@ -440,3 +440,104 @@ supplied by the calling test or code, not by configuration.
 requiring direct construction always — rejected, the factory should
 still work end-to-end for wiring/smoke-test code that doesn't care about
 specific results.
+
+## D-024 — Sandbox image package pins resolved with `uv pip compile`, not memory
+
+**Date:** 2026-10-24
+
+**Decision:** The 7 pinned package versions in `modal_image.py`
+(pandas, numpy, scipy, scikit-learn, statsmodels, matplotlib, seaborn)
+were chosen by running `uv pip compile` against live PyPI metadata for
+Python 3.12 with no version constraints, and taking the resolver's
+output — not by recalling version numbers from training data.
+
+**Why:** Package ecosystems move fast (this is the same lesson as
+D-003's model retirement) and a resolver that actually queries the
+index on the day the pins are written is strictly more trustworthy than
+guessed version strings, especially for a 2026 "current" requirement.
+
+**Alternatives rejected:** Picking versions from memory/training data —
+rejected outright, likely to be stale or mutually incompatible by now.
+
+## D-025 — An OOM-killed sandbox container is a `SandboxCrashed`, not a structured error
+
+**Date:** 2026-10-24
+
+**Decision:** No special-casing was added for out-of-memory behavior.
+When a script exceeds the sandbox's hard memory limit, the *entire*
+sandbox container disappears (confirmed live: the next SDK call against
+it raises `modal.exception.NotFoundError`), and `ModalSandbox.run()`'s
+existing `except modal.exception.Error` handler already turns that into
+`SandboxCrashed`.
+
+**Why:** This is exactly the right semantics already — the agent's
+contract is "a Python exception or timeout *inside user code* comes
+back as a structured `ExecResult`; an infrastructure-level death raises
+an exception" (D-006-adjacent). An OOM kill of the whole container is
+an infrastructure death, not a catchable Python exception in the user's
+script, so it belongs on the `SandboxCrashed` side of that line.
+
+**Alternatives rejected:** Trying to detect this case specifically and
+synthesize a fake `ExecError` for it — rejected, would blur a
+distinction (user-code failure vs. infrastructure failure) that the
+rest of the design deliberately keeps sharp, and the agent's repair
+loop should retry on infra failures differently than on a script bug
+anyway.
+
+## D-026 — Exec timeout is detected via Modal's `-1` returncode sentinel
+
+**Date:** 2026-10-24
+
+**Decision:** `ModalSandbox` treats `returncode == -1` from
+`ContainerProcess.wait()` as "this exec timed out," rather than relying
+on catching `modal.exception.ExecTimeoutError`.
+
+**Why:** Reading the installed SDK source directly (not guessing)
+showed `ContainerProcess.wait()`/`poll()` currently swallow
+`ExecTimeoutError` internally and set `returncode = -1` instead of
+propagating it — confirmed live in `test_f_timeout_then_fresh_run_works`.
+Catching the exception alone would miss real timeouts on this SDK
+version.
+
+**Alternatives rejected:** Catching `ExecTimeoutError` only — rejected,
+doesn't match this SDK version's actual behavior as verified by both
+source reading and a live test.
+
+## D-027 — Sandbox entrypoint is `sleep <lifetime_s>`, work happens via `exec`
+
+**Date:** 2026-10-24
+
+**Decision:** `Sandbox.create("sleep", str(sandbox_lifetime_s), ...)` is
+the sandbox's main command; the actual task script runs via a separate
+`sandbox.exec("python", RUNNER_PATH, ...)` call, and the sandbox is
+terminated explicitly afterward rather than left to exit on its own.
+
+**Why:** `Sandbox.create`'s `*args` set the container's CMD; without a
+long-running placeholder command the container could exit before (or
+while) files are written into it via the filesystem API. `sleep
+<lifetime_s>` bounds the container's own maximum lifetime to the same
+number already used for Modal's `timeout=` parameter, so the two limits
+agree.
+
+**Alternatives rejected:** Running the task script directly as the CMD
+(`Sandbox.create("python", RUNNER_PATH, ...)`) — rejected, that would
+require uploading files *before* the sandbox exists (not possible — the
+filesystem API needs a running sandbox) and would reuse `Sandbox.create`'s
+output-capture path instead of `exec`'s, which is less uniform with how
+the host actually wants to read stdout/stderr/returncode.
+
+## D-028 — The runner catches `Exception`, not `BaseException`
+
+**Date:** 2026-10-24
+
+**Decision:** `runner.py` wraps `runpy.run_path(...)` in
+`except Exception`, not `except BaseException`.
+
+**Why:** `BaseException` would also catch `SystemExit`, which would
+turn a deliberate `sys.exit(0)` in a user script into a reported
+"error." In practice the static checker (Task 5) blocks `exit`/`quit`
+calls anyway, but the runner itself shouldn't rely on that — it should
+do the Python-idiomatic thing on its own.
+
+**Alternatives rejected:** `except BaseException` for maximal safety
+net — rejected, would misreport a clean `SystemExit` as a crash.
