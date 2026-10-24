@@ -27,10 +27,19 @@ class Settings(BaseSettings):
     usd_per_core_second: float = 0.00003942
     usd_per_gib_second: float = 0.00000667
 
-    # LLM provider configuration. Not yet consumed by any code in this repo;
-    # the keys are modeled here so they are never accidentally stored or
-    # logged as plain strings once the LLM layer is built.
-    sa_llm_provider: str | None = None
+    # LLM provider configuration.
+    sa_llm_provider: Literal["nim", "groq", "fake"] = "fake"
     sa_llm_model: str | None = None
     nim_api_key: SecretStr | None = None
     groq_api_key: SecretStr | None = None
+
+    # LLM sampling defaults, fixed for every headline number (see D-036).
+    llm_temperature: float = 1.0
+    llm_top_p: float = 1.0
+    llm_max_tokens: int = 4096
+    llm_reasoning_effort: str = "medium"
+    llm_timeout_s: float = 120
+
+    # Client-side request spacing, per provider (requests/minute).
+    llm_rpm_nim: float = 30
+    llm_rpm_groq: float = 25

@@ -46,6 +46,10 @@ on 2026-09-03 (HTTP 410 Gone). `gpt-oss-20b` is a current NVIDIA free
 endpoint and is also available on Groq's free plan, so the evaluated
 model is the same model used in the live demo.
 
+**Confirmed 2026-10-24:** `openai/gpt-oss-20b` on NVIDIA replied; a
+two-word answer used 68 completion tokens because reasoning tokens
+count toward `max_tokens`.
+
 **Trade-off:** Lower absolute accuracy than larger models.
 
 **Alternatives rejected:**
@@ -676,3 +680,94 @@ being merged in — relevant since this repo currently only has a
 **Alternatives rejected:** PR-only triggers — rejected, would miss
 direct pushes to `main` during solo development, where there's no PR
 to gate.
+
+## D-036 — LLM sampling defaults are fixed, not tuned per call
+
+**Date:** 2026-10-24
+
+**Decision:** `temperature=1.0`, `top_p=1.0` (gpt-oss's own defaults, per
+NVIDIA's sample code), `max_tokens=4096`, `reasoning_effort="medium"`.
+These are used for every headline benchmark number; run-to-run variance
+from the LLM's own stochasticity is handled by reporting 3 runs with a
+confidence interval (D-013), not by forcing `temperature=0`.
+
+**Why:** `temperature=0` would make the benchmark numbers look falsely
+reproducible while hiding the model's actual variance; reporting
+multiple runs is the honest way to show that variance instead of
+suppressing it.
+
+**Alternatives rejected:** `temperature=0` for "reproducible" numbers —
+rejected, this is exactly the single-run-looks-stable trap D-013
+already rejects for a different reason (sandbox transience); the fix
+is the same (report multiple runs), not forcing determinism.
+
+## D-037 — LLM error policy: dispatch on status code, not exception class
+
+**Date:** 2026-10-24
+
+**Decision:** `OpenAICompatClient` retries only 429, 5xx, request
+timeouts, and connection errors (up to 6 attempts, exponential backoff
+with full jitter, honoring a `Retry-After` header when present). Every
+other 4xx raises `LLMConfigError` immediately, carrying the provider's
+own error message, with no retry. The retryable/non-retryable split is
+decided by reading `exc.status_code` off the caught `openai.APIError`
+(plus the two timeout/connection classes), not by matching on which
+exception subclass the SDK happened to raise.
+
+**Why:** Reading the installed `openai` SDK's source (`_client.py`'s
+`_make_status_error`) showed that only 400/401/403/404/409/422/429 and
+anything ≥500 get a dedicated exception subclass; a 410 (the exact
+error this project hit when `gpt-oss-120b` was retired — see D-003)
+falls through to the generic `APIStatusError` with no subclass of its
+own. Matching on `status_code` handles that case correctly without a
+special-cased branch for 410; matching on exception class would have
+silently missed it (generic `APIStatusError` isn't `BadRequestError`,
+`NotFoundError`, or any other named subclass).
+
+**Alternatives rejected:** Matching on exception subclass (e.g.
+`except openai.NotFoundError`) — rejected, provably wrong for 410 and
+any other status code without a dedicated subclass, confirmed by
+reading the SDK source rather than assuming the taxonomy was complete.
+
+## D-038 — Record/replay cassettes, keyed by a canonical-JSON hash
+
+**Date:** 2026-10-24
+
+**Decision:** `RecordingLLM` appends every request/response pair to a
+JSONL cassette file; `ReplayLLM` serves responses by looking up the
+sha256 of a canonical JSON encoding of `(provider, model, messages,
+sampling params)`, raising `CassetteMiss` on an unknown key. Cassettes
+live under `tests/cassettes/`, are committed (they contain no secrets,
+just request/response pairs), and must never contain DABench data.
+
+**Why:** Deterministic, offline tests for LLM-dependent code need real
+recorded provider behavior (including provider-specific quirks like
+`reasoning_content`), not hand-written fixtures that might not match
+what a real response actually looks like. Hashing the full request
+(not just a label) means a cassette can never silently serve the wrong
+answer for a changed prompt.
+
+**Alternatives rejected:** Hand-written fixture responses — rejected,
+risks drifting from what providers actually return. A sequential/
+positional cassette format (match by call order, not content) —
+rejected, too fragile to call-order changes during refactors.
+
+## D-039 — `reasoning_effort` is sent as the native OpenAI-compatible parameter
+
+**Date:** 2026-10-24
+
+**Decision:** `OpenAICompatClient` sends `reasoning_effort` as a normal
+top-level parameter on the chat-completions request, exactly as the
+`openai` SDK types it (no `extra_body`, no system-message fallback).
+
+**Why:** A live test against NVIDIA NIM (`openai/gpt-oss-20b`), same
+question (`"What is 15 + 27? Answer with just the number."`), 2 calls
+at `reasoning_effort="low"` and 2 at `"high"`, measured mean completion
+tokens of **16 (low) vs. 60 (high)** — a clear, consistent difference,
+confirming NIM honors the parameter natively. The fallback design
+(injecting a `"Reasoning: <level>"` line into the system message) was
+never needed.
+
+**Alternatives rejected:** The system-message fallback — not built,
+since the native parameter demonstrably works; keeping unused fallback
+code around would be dead code with no test coverage backing it.
