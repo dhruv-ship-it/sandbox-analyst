@@ -3,6 +3,7 @@ import json
 import pytest
 
 from sandbox_analyst.agent import loop as agent_loop
+from sandbox_analyst.llm import FakeLLM
 
 
 def _create_run(client, dataset_id: str, question: str = "what is the total revenue?"):
@@ -36,6 +37,29 @@ def test_full_run_lifecycle(client, load_sales_dataset, wait_for_run):
     assert trace_response.status_code == 200
     lines = [json.loads(line) for line in trace_response.text.splitlines() if line]
     assert lines[-1]["type"] == "run_finished"
+
+
+def test_unexpected_failure_still_emits_a_terminal_run_finished_event(
+    build_client, load_sales_dataset, wait_for_run, drain_sse
+):
+    # A bare RuntimeError from the LLM client isn't one of the LLMError
+    # subclasses run_agent's own status machine handles, so it propagates
+    # out of run_agent entirely -- exactly the "unexpected failure outside
+    # run_agent's own status machine" path _execute_run's except Exception
+    # branch exists for.
+    client = build_client(llm=FakeLLM([RuntimeError("boom")]))
+    dataset_id = load_sales_dataset(client)
+    run_id = _create_run(client, dataset_id).json()["run_id"]
+
+    summary = wait_for_run(client, run_id)
+    assert summary["status"] == "error"
+    assert summary["error"] == "boom"
+
+    events = drain_sse(client, run_id)
+    assert events[-1]["type"] == "run_finished"
+    assert events[-1]["payload"]["status"] == "error"
+    assert [e["seq"] for e in events] == sorted(e["seq"] for e in events)
+    assert all(e["run_id"] == run_id for e in events)
 
 
 def test_run_create_rejects_a_question_that_is_too_short(client, load_sales_dataset):

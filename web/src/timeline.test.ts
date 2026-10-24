@@ -34,7 +34,10 @@ describe("reduceTimeline over real agent-loop fixtures", () => {
     expect(state.status).toBe("answered");
     expect(state.attempts).toHaveLength(2);
     expect(state.attempts[0].phase).toBe("repairing");
-    expect(state.attempts[0].execResult?.error?.name).toBe("KeyError");
+    const execError = state.attempts[0].execResult?.error;
+    expect(typeof execError === "object" && execError !== null ? execError.name : null).toBe(
+      "KeyError",
+    );
     expect(state.attempts[1].phase).toBe("answered");
   });
 

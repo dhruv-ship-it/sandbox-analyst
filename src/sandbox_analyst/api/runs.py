@@ -294,6 +294,29 @@ def _execute_run(
         with record.lock:
             record.status = "error"
             record.error = str(exc)
+            next_seq = len(record.events)
+            fallback_run_id = record.agent_run_id or record.run_id
+        # run_agent's own "run_finished" event is what tells an SSE client (and the
+        # trace file) that a run is over; an unexpected failure here happens outside
+        # run_agent's own event emission entirely, so without this, a live client has
+        # no event-level signal to stop on -- only the connection silently closing,
+        # which EventSource would just keep reconnecting against (see DECISIONS.md).
+        on_event(
+            AgentEvent(
+                run_id=fallback_run_id,
+                seq=next_seq,
+                ts=time.time(),
+                type="run_finished",
+                attempt=agent_loop.MAX_ATTEMPTS,
+                payload={
+                    "status": "error",
+                    "total_prompt_tokens": 0,
+                    "total_completion_tokens": 0,
+                    "total_latency_ms": 0,
+                    "sandbox_usd": 0.0,
+                },
+            )
+        )
     finally:
         limiter.release()
         with record.lock:

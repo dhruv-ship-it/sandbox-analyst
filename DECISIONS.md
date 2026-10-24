@@ -2226,3 +2226,132 @@ rejected; it happens to work (the naming scheme is stable, per
 frontend for no real benefit, since the chart isn't needed until the
 Result panel renders anyway.
 
+## D-087 — "How it works" is a native `<details>` element, not a modal
+
+**Date:** 2026-10-25
+
+**Decision:** `HowItWorks.tsx` renders its content inside a plain
+`<details id="how-it-works"><summary>How it works</summary>...</details>`,
+and the header's "How it works" link is an in-page anchor
+(`<a href="#how-it-works">`) that opens it (browsers auto-expand the
+`<details>` a same-page anchor targets). This task's own spec offered
+either "a section or modal," and the native element was chosen.
+
+**Why:** A real modal needs a focus trap, an Escape-to-close handler,
+and `aria-modal`/`role="dialog"` wiring to be accessible at all --
+either hand-rolled (easy to get subtly wrong: focus escaping the trap,
+no return-focus on close) or via a library, which this task's "no UI
+kit" rule argues against pulling in for one disclosure widget.
+`<details>`/`<summary>` already is keyboard-operable, has correct
+semantics for free, and needs zero JavaScript.
+
+**Alternatives rejected:** A hand-rolled modal with a `useEffect`-based
+focus trap -- rejected as meaningfully more code and more ways to get
+accessibility wrong, for content (an explanation, not a workflow the
+user must complete before continuing) that doesn't need modal
+semantics in the first place.
+
+## D-088 — Per-step elapsed time is "time since the attempt started," not inter-step deltas
+
+**Date:** 2026-10-25
+
+**Decision:** `AttemptCard`'s `TimeTag` shows `+<elapsed>` next to each
+step heading, computed as `event.ts - attempt.startedAt` for that
+step's own event (`attempt.startedAt` is the `ts` of the first event
+`timeline.ts` ever recorded for that attempt). It is not the time since
+the *previous* step's event.
+
+**Why:** "Elapsed time per step" is ambiguous between "how long did
+this step alone take" (an inter-step delta) and "how far into this
+attempt are we at this step" (time-since-start). Time-since-start was
+chosen because it stays meaningful even when a step's own duration
+would be near-zero or misleading from event timestamps alone (e.g. the
+gap between `llm_request` and `llm_response` is the real LLM latency,
+already shown separately in that event's own payload; the gap between
+`code` and `static_check` is sub-millisecond host-side work, not
+interesting to a viewer) -- a running "+Xs" total next to each step
+reads naturally as "this is how deep into the attempt we are," which
+matches what a viewer watching the live timeline actually wants to
+know as attempts take several seconds each.
+
+**Alternatives rejected:** Inter-step deltas -- rejected per the above;
+would surface several near-zero, uninformative gaps (host-side
+bookkeeping between consecutive events) alongside the one gap
+(LLM latency) that's actually interesting, and that one already has
+its own number in the `llm_response` payload.
+
+## D-089 — The Result panel is fetched once, triggered by the reducer's own terminal status, never polled
+
+**Date:** 2026-10-25
+
+**Decision:** `App.tsx` fetches `GET /api/runs/{id}` exactly once per
+run, from a `useEffect` whose dependency is `timeline.status` (derived
+from the SSE stream via `reduceTimelineAll`) reaching a terminal value
+-- not a timer, not a retry loop.
+
+**Why:** This task's rule against polling applies as much to the
+frontend as to the backend scripts it was originally written for
+(CLAUDE.md rule 10, "awaiting SSE is fine" is the explicit exception --
+a one-shot fetch gated on an SSE-driven state transition is a
+continuation of that same event-driven model, not a departure from it).
+The run's own event stream already tells the UI exactly when the run
+is done (`run_finished`), so there is a precise trigger available and
+no reason to fall back to time-based polling.
+
+**Alternatives rejected:** Polling `GET /api/runs/{id}` on an interval
+until it reports a terminal status -- rejected outright; the SSE stream
+already provides an exact, push-based signal for "the run just
+finished," making a poll loop both against this task's own rule and
+simply unnecessary.
+
+## D-090 — A tiny, API-only backwards-compatible addition: `_execute_run`'s unexpected-failure path now emits its own terminal `run_finished`
+
+**Date:** 2026-10-25
+
+**Decision:** Found by actually running the built UI's exact call
+sequence against a live `sa serve` process (fake LLM/sandbox) while
+building Task 3, not by inspection: when `run_agent` raises an
+exception its own status machine doesn't handle (anything outside
+`LLMError`'s subclasses, or a failure before `run_agent` even starts --
+e.g. `profile_csv`), `api/runs.py`'s `_execute_run` caught it, set
+`record.status = "error"`, and closed every subscriber's queue with the
+internal `_CLOSE_SENTINEL` -- but never emitted an actual `run_finished`
+*event*. A live SSE client (the browser's `EventSource`) only ever
+closes itself on seeing a `run_finished` event; otherwise it sees the
+HTTP connection drop and, per the SSE spec, keeps automatically
+reconnecting. Since a reconnect to an already-finished run's `/events`
+endpoint replays its (incomplete) event list and returns immediately
+(`record.status in TERMINAL_STATUSES`), this specific failure path
+would have caused an indefinite reconnect loop in any real browser
+tab left open on an errored run. The fix: the `except Exception`
+branch now builds one more `AgentEvent` itself (`type="run_finished"`,
+`payload={"status": "error", ...}`, same shape every other
+`run_finished` carries) and passes it through the exact same `on_event`
+closure every other event in the run already goes through, so it's
+recorded, traced, and fanned out identically.
+
+**Why:** This is the kind of change this task's own CLAUDE.md rule 9
+explicitly permits -- "If the UI needs something the API lacks, add it
+only if tiny and backwards-compatible, with tests, and document it" --
+and this is as tiny as that gets: one new event, built from data
+`_execute_run` already has, through the exact call it already makes
+for every other event, touching no behavior of `run_agent`/`agent/loop.py`
+itself (that module's own event contract -- "run_finished means
+run_agent returned" -- is untouched; this is purely about the one
+failure mode that happens *outside* `run_agent`'s own machinery, at the
+API layer that wraps it). Confirmed by a new test
+(`test_unexpected_failure_still_emits_a_terminal_run_finished_event`)
+that forces exactly this path with a bare `RuntimeError` from a
+`FakeLLM` (not one of the `LLMError` subclasses `run_agent` itself
+catches) and asserts the SSE stream's last event is now a proper
+`run_finished` with `status: "error"`.
+
+**Alternatives rejected:** Fixing this purely client-side (e.g. have
+`useRunEvents` give up reconnecting after N attempts, or close itself
+on any connection drop regardless of event type) -- rejected; closing
+on *any* drop would also stop retrying through an ordinary transient
+network blip during a real, still-running attempt, which is exactly
+the case SSE reconnection exists to recover from. The real problem was
+a missing signal, not a client that reacts wrongly to the signal it
+has -- so the fix belongs where the signal is missing.
+

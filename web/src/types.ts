@@ -84,12 +84,16 @@ export interface ExecError {
   traceback: string;
 }
 
-/** The normal shape, or a `crashed`/`unavailable` shape on a sandbox-infra failure. */
+/**
+ * The normal shape, or a `crashed`/`unavailable` shape on a sandbox-infra
+ * failure -- in which case `error` is a plain message string, not an
+ * `ExecError` object (see agent/loop.py's `exec_result` emit calls).
+ */
 export interface ExecResultPayload {
   stdout?: string;
   stderr?: string;
   exit_code?: number | null;
-  error?: ExecError | null;
+  error?: ExecError | string | null;
   images?: string[];
   duration_ms?: number;
   timed_out?: boolean;
