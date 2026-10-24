@@ -1,0 +1,49 @@
+# What never reaches the build context. The Dockerfile COPYs explicitly, so this is a
+# second line of defence rather than the only one -- and for .env it's the line that
+# matters, since a key baked into an image layer stays in that layer forever.
+
+# secrets, first and always
+.env
+.env.*
+!.env.example
+
+# never committed, never shipped: private notes, downloaded DABench data, and local
+# run state (traces, artifacts, ledgers, usage logs) -- see CLAUDE.md rule 2.
+notes/
+data/
+runs/
+
+# local python
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# node: Prompt 6's build stage reinstalls inside the image; a host node_modules may
+# hold binaries built for the wrong platform, and web/dist is produced by that stage.
+web/node_modules/
+web/dist/
+
+# git history and tooling
+.git/
+.github/
+.gitignore
+.gitattributes
+
+# documents: for people, not for the server
+docs/
+*.md
+!README.md
+
+# the benchmark split pointer and tests do not run in the image
+eval/
+tests/
+
+# editor and OS litter
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

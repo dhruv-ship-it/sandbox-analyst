@@ -1889,3 +1889,66 @@ investigation to "maybe it's a TestClient-only artifact, so it's safe
 in production" -- rejected as an unverified assumption not worth
 risking against a real, reproduced failure.
 
+## D-077 — Production Dockerfile: single Python stage today, a marked spot for Prompt 6's Node stage
+
+**Date:** 2026-10-25
+
+**Decision:** `Dockerfile` mirrors the ZoneWise project's working
+pattern (`python:3.12-slim`, `uv` copied from its own published image
+and used with `--frozen`, a non-root user, `HEALTHCHECK` hitting
+`/api/health`) but is single-stage for now, since there is no `web/`
+directory yet -- Prompt 6 is explicitly the one that adds the React UI.
+The spot where ZoneWise's `FROM node:20-slim AS web` stage and its
+later `COPY --from=web ...` line would go is left as a commented block
+in place, not an empty stub stage, so Prompt 6 can paste ZoneWise's own
+proven commands in directly. `SA_DATA_DIR=/home/sa-data` and
+`SA_SANDBOX=modal`/`SA_LLM_PROVIDER=groq`/`SA_LLM_MODEL=openai/gpt-oss-20b`
+are baked in as image defaults (every one still overridable by an App
+Service setting); `GROQ_API_KEY`, `MODAL_TOKEN_ID`, `MODAL_TOKEN_SECRET`,
+`SA_SANDBOX_BUDGET_USD`, and `SA_TRUST_PROXY` are deliberately left
+unset in the image, since Task 6's deploy guide requires them to be set
+explicitly as App Service settings (D-071/D-072's production-specific
+values), and baking a default here would make that instruction
+misleading.
+
+**Why:** Copying a working, already-debugged pattern (uv's own
+published-image copy trick, the non-root user, the `HEALTHCHECK`
+shape) is strictly better than re-deriving it from scratch, and this
+task's instructions explicitly ask for that. A commented-out stage
+(rather than silence, or a stub that does nothing) documents the
+intended shape for whoever writes Prompt 6, without actually adding a
+Node toolchain or any web/ dependency to this image today.
+
+**Alternatives rejected:** A fully generic two-stage Dockerfile with an
+empty `web/` placeholder directory committed now -- rejected, adds
+files and a build stage for a frontend that doesn't exist yet, for no
+benefit over a clear comment. Baking `SA_SANDBOX_BUDGET_USD=0.30` into
+the image -- rejected, Task 6 explicitly lists it as an App Setting the
+user configures by hand, and a baked default would make that setting
+look redundant instead of required.
+
+## D-078 — `.dockerignore` mirrors ZoneWise's structure and reasoning
+
+**Date:** 2026-10-25
+
+**Decision:** `.dockerignore` excludes exactly what this task asked for
+(`.env*` with `!.env.example`, `data/`, `runs/`, `notes/`, `.venv/`,
+`tests/`, `.git/`) plus the same obviously-safe additions ZoneWise's
+own `.dockerignore` already makes (`__pycache__/`, tool caches,
+`.github/`, `docs/` and `*.md` except `README.md`, editor/OS litter,
+`web/node_modules/`/`web/dist/` for Prompt 6's future stage). `eval/`
+is also excluded -- it holds only `split.json` (file names and question
+counts, D-041), which the running API never reads.
+
+**Why:** Direct reuse of a pattern already proven to keep secrets and
+unnecessary bulk out of a real image for a structurally similar
+project, with the comment explaining WHY each group is excluded kept
+alongside it (consistent with this project's own documentation
+discipline) rather than a bare file list.
+
+**Alternatives rejected:** A minimal `.dockerignore` with only the six
+things this task named -- rejected, the extra entries cost nothing and
+close real gaps (e.g. an accidentally-committed `.mypy_cache/` or a
+stray `web/node_modules/` from local frontend work would otherwise
+bloat the build context once Prompt 6 adds `web/`).
+
