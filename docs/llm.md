@@ -37,11 +37,17 @@ own defaults per NVIDIA's sample code:
 | `top_p` | 1.0 |
 | `max_tokens` | 4096 |
 | `reasoning_effort` | `medium` |
-| `timeout` | 120s |
+| `timeout` | 142s |
 
 Run-to-run variance from the model's own stochasticity is handled by
 reporting multiple runs with a confidence interval (D-013), not by
 forcing `temperature=0`.
+
+The timeout is derived from measured latency, not a round number (D-056):
+`max(45, ceil(2 * p95))` over every **successful** call recorded in
+`runs/llm_usage.jsonl` as of this session (n=20: p50=14.22s, p95=70.57s,
+max=77.30s) gives 142s. The retry policy itself is unchanged -- this
+only changes how long one attempt waits before giving up and retrying.
 
 ## The `reasoning_effort` finding
 

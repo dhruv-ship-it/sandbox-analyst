@@ -1,6 +1,6 @@
 import pytest
 
-from sandbox_analyst.sandbox.base import ExecResult, SandboxUnavailable
+from sandbox_analyst.sandbox.base import ExecResult, SandboxCrashed, SandboxUnavailable
 from sandbox_analyst.sandbox.fake import FakeSandbox
 
 
@@ -83,3 +83,33 @@ def test_fake_sandbox_never_executes_code(tmp_path):
     sandbox.run(payload)
 
     assert not marker.exists()
+
+
+# ---- last_run_cost_usd (D-054) ----
+
+
+def test_last_run_cost_usd_defaults_to_zero():
+    sandbox = FakeSandbox([_ok_result()])
+    assert sandbox.last_run_cost_usd == 0.0
+
+
+def test_last_run_cost_usd_set_after_a_successful_run():
+    sandbox = FakeSandbox([_ok_result(), _ok_result()], run_cost_usd=0.001)
+    sandbox.run("code")
+    assert sandbox.last_run_cost_usd == 0.001
+    sandbox.run("code")
+    assert sandbox.last_run_cost_usd == 0.001
+
+
+def test_last_run_cost_usd_set_even_when_the_run_crashes():
+    sandbox = FakeSandbox([SandboxCrashed("oom")], run_cost_usd=0.002)
+    with pytest.raises(SandboxCrashed):
+        sandbox.run("code")
+    assert sandbox.last_run_cost_usd == 0.002
+
+
+def test_last_run_cost_usd_unchanged_when_unavailable_before_a_sandbox_is_created():
+    sandbox = FakeSandbox([], run_cost_usd=0.002)
+    with pytest.raises(SandboxUnavailable):
+        sandbox.run("code")
+    assert sandbox.last_run_cost_usd == 0.0

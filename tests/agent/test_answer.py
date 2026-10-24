@@ -2,8 +2,11 @@ import pytest
 
 from sandbox_analyst.agent.answer import (
     MAX_EXPLANATION_CHARS,
+    AnswerItem,
     AnswerParseError,
+    extract_format_placeholders,
     extract_json,
+    match_names_to_format,
     parse_final_answer,
 )
 
@@ -122,3 +125,81 @@ def test_parse_final_answer_raises_when_explanation_exceeds_cap():
 def test_parse_final_answer_raises_when_explanation_missing():
     with pytest.raises(AnswerParseError, match="schema"):
         parse_final_answer('{"answers": [{"name": "a", "value": "1"}]}')
+
+
+# ---- name normalization at the answer boundary (D-054) ----
+
+
+def test_answer_item_strips_whitespace_and_leading_at():
+    assert AnswerItem(name="  @mean_fare  ", value="1").name == "mean_fare"
+
+
+def test_answer_item_strips_a_doubled_leading_at():
+    assert AnswerItem(name="@@mean_fare", value="1").name == "mean_fare"
+
+
+def test_answer_item_name_with_no_at_is_unaffected():
+    assert AnswerItem(name="mean_fare", value="1").name == "mean_fare"
+
+
+def test_parse_final_answer_normalizes_a_leading_at_in_the_name():
+    raw = '{"answers": [{"name": "@mean_fare", "value": "1"}], "explanation": "ok"}'
+    final = parse_final_answer(raw)
+    assert final.answers[0].name == "mean_fare"
+
+
+# ---- extract_format_placeholders ----
+
+
+def test_extract_format_placeholders_single():
+    fmt = '@mean_fare[mean] where "mean" is a float.'
+    assert extract_format_placeholders(fmt) == ["mean_fare"]
+
+
+def test_extract_format_placeholders_multiple_in_order():
+    fmt = "@a[val_a] @b[val_b] @c[val_c]"
+    assert extract_format_placeholders(fmt) == ["a", "b", "c"]
+
+
+def test_extract_format_placeholders_empty_when_none_present():
+    assert extract_format_placeholders("no placeholders here") == []
+
+
+# ---- match_names_to_format ----
+
+
+def test_match_names_to_format_recases_a_case_insensitive_match():
+    answers = [AnswerItem(name="Mean_Fare", value="34.65")]
+    matched = match_names_to_format(answers, "@mean_fare[mean]")
+    assert matched[0].name == "mean_fare"
+    assert matched[0].value == "34.65"
+
+
+def test_match_names_to_format_leaves_an_exact_match_unchanged():
+    answers = [AnswerItem(name="mean_fare", value="34.65")]
+    matched = match_names_to_format(answers, "@mean_fare[mean]")
+    assert matched[0].name == "mean_fare"
+
+
+def test_match_names_to_format_leaves_a_non_matching_name_unchanged():
+    answers = [AnswerItem(name="unrelated_name", value="1")]
+    matched = match_names_to_format(answers, "@mean_fare[mean]")
+    assert matched[0].name == "unrelated_name"
+
+
+def test_match_names_to_format_handles_multiple_answers():
+    answers = [AnswerItem(name="A", value="1"), AnswerItem(name="B", value="2")]
+    matched = match_names_to_format(answers, "@a[x] @b[y]")
+    assert [a.name for a in matched] == ["a", "b"]
+
+
+def test_parse_final_answer_recases_names_to_match_the_format():
+    raw = '{"answers": [{"name": "Mean_Fare", "value": "34.65"}], "explanation": "ok"}'
+    final = parse_final_answer(raw, answer_format="@mean_fare[mean]")
+    assert final.answers[0].name == "mean_fare"
+
+
+def test_parse_final_answer_with_no_format_does_not_recase():
+    raw = '{"answers": [{"name": "Mean_Fare", "value": "34.65"}], "explanation": "ok"}'
+    final = parse_final_answer(raw)
+    assert final.answers[0].name == "Mean_Fare"

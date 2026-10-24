@@ -4,18 +4,34 @@ The model is asked to reply with ONLY a JSON object, but providers
 sometimes wrap it in a fenced code block or add stray text around it, so
 extraction has to find a balanced `{...}` span rather than assume the
 whole reply is clean JSON.
+
+Name normalization happens at this boundary (D-054): the model sometimes
+writes its own leading "@" into the JSON `name` field (e.g.
+`"name": "@mean_fare"`) and sometimes varies the case of a name relative
+to the `@name[...]` placeholders in the question's required answer
+format. `AnswerItem.name` always strips whitespace and any leading "@";
+`parse_final_answer` additionally re-cases a name to match the format's
+own placeholder spelling, case-insensitively, when a format is given.
 """
 
 import json
+import re
 
-from pydantic import BaseModel, Field, ValidationError
+from pydantic import BaseModel, Field, ValidationError, field_validator
 
 MAX_EXPLANATION_CHARS = 600
+
+_FORMAT_PLACEHOLDER_RE = re.compile(r"@(\w+)\[")
 
 
 class AnswerItem(BaseModel):
     name: str
     value: str
+
+    @field_validator("name")
+    @classmethod
+    def _normalize_name(cls, v: str) -> str:
+        return v.strip().lstrip("@").strip()
 
 
 class FinalAnswer(BaseModel):
@@ -25,6 +41,29 @@ class FinalAnswer(BaseModel):
 
 class AnswerParseError(Exception):
     """The reply had no valid FinalAnswer JSON. `str(exc)` is safe to feed back to the model."""
+
+
+def extract_format_placeholders(answer_format: str) -> list[str]:
+    """Return the `@name` placeholders (in order) declared by an answer-format string."""
+    return _FORMAT_PLACEHOLDER_RE.findall(answer_format)
+
+
+def match_names_to_format(answers: list[AnswerItem], answer_format: str) -> list[AnswerItem]:
+    """Re-case each answer's name to match a format placeholder it equals case-insensitively.
+
+    An answer whose (already-normalized) name doesn't match any
+    placeholder is passed through unchanged -- this only fixes casing,
+    it never invents or drops an answer.
+    """
+    placeholders_by_lower = {p.lower(): p for p in extract_format_placeholders(answer_format)}
+    matched = []
+    for answer in answers:
+        canonical = placeholders_by_lower.get(answer.name.lower())
+        if canonical is not None and canonical != answer.name:
+            matched.append(AnswerItem(name=canonical, value=answer.value))
+        else:
+            matched.append(answer)
+    return matched
 
 
 def _first_balanced_object(text: str) -> str | None:
@@ -77,8 +116,12 @@ def extract_json(reply: str) -> str | None:
     return _first_balanced_object(reply)
 
 
-def parse_final_answer(reply: str) -> FinalAnswer:
+def parse_final_answer(reply: str, answer_format: str | None = None) -> FinalAnswer:
     """Extract and validate a FinalAnswer from a model's reply.
+
+    When `answer_format` is given, each answer's name is re-cased to
+    match that format's own `@name[...]` placeholders, case-insensitively
+    (see module docstring).
 
     Raises AnswerParseError with a message suitable for feeding back to the
     model as a repair instruction on failure.
@@ -94,6 +137,11 @@ def parse_final_answer(reply: str) -> FinalAnswer:
     except json.JSONDecodeError as exc:
         raise AnswerParseError(f"the JSON object could not be parsed: {exc}") from exc
     try:
-        return FinalAnswer.model_validate(data)
+        final = FinalAnswer.model_validate(data)
     except ValidationError as exc:
         raise AnswerParseError(f"the JSON object did not match the required schema: {exc}") from exc
+    if answer_format:
+        final = final.model_copy(
+            update={"answers": match_names_to_format(final.answers, answer_format)}
+        )
+    return final

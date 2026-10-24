@@ -143,7 +143,7 @@ def cmd_ask(csv_path: str, question: str) -> int:
             print(f"  {image_path}")  # noqa: T201
     print(  # noqa: T201
         f"tokens: prompt={result.total_prompt_tokens} completion={result.total_completion_tokens} "
-        f"latency_ms={result.total_latency_ms} sandbox_est_usd=${result.sandbox_est_usd:.4f}"
+        f"latency_ms={result.total_latency_ms} sandbox_usd=${result.sandbox_usd:.4f}"
     )
     if tracer.path is not None:
         print(f"trace: {tracer.path}")  # noqa: T201
@@ -235,7 +235,7 @@ def cmd_dabench_smoke(n: int, seed: int) -> int:
             n_answered += 1
         token_totals.append(result.total_prompt_tokens + result.total_completion_tokens)
         latency_totals.append(result.total_latency_ms)
-        sandbox_usd_total += result.sandbox_est_usd
+        sandbox_usd_total += result.sandbox_usd
 
     requests_after = _count_lines(DEFAULT_USAGE_LOG_PATH)
     mean_tokens = sum(token_totals) / len(token_totals) if token_totals else 0.0
@@ -244,7 +244,7 @@ def cmd_dabench_smoke(n: int, seed: int) -> int:
     print()  # noqa: T201
     print(  # noqa: T201
         f"answered {n_answered}/{len(selected)}  mean_tokens={mean_tokens:.0f}  "
-        f"mean_latency_ms={mean_latency:.0f}  sandbox_est_usd=${sandbox_usd_total:.4f}  "
+        f"mean_latency_ms={mean_latency:.0f}  sandbox_usd=${sandbox_usd_total:.4f}  "
         f"llm_requests_used={requests_after - requests_before}"
     )
     return 0

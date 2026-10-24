@@ -38,7 +38,9 @@ class Settings(BaseSettings):
     llm_top_p: float = 1.0
     llm_max_tokens: int = 4096
     llm_reasoning_effort: str = "medium"
-    llm_timeout_s: float = 120
+    # max(45, ceil(2 * p95)) over successful calls in runs/llm_usage.jsonl
+    # as of the P2 session (n=20, p95=70.57s) -- see D-056.
+    llm_timeout_s: float = 142
 
     # Client-side request spacing, per provider (requests/minute).
     llm_rpm_nim: float = 30

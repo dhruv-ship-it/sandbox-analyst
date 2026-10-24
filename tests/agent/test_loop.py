@@ -1,5 +1,7 @@
 from pathlib import Path
 
+import pytest
+
 from sandbox_analyst.agent.loop import run_agent
 from sandbox_analyst.agent.profile import DELIM_END, DELIM_START
 from sandbox_analyst.config import Settings
@@ -90,6 +92,40 @@ def test_happy_path_in_one_attempt():
     assert result.answers[0].name == "mean_x"
     assert result.answers[0].value == "2.0"
     assert result.code == "print('mean_x =', 2.0)"
+
+
+# ---- sandbox cost accounting (D-054): the ledger is the source of truth ----
+
+
+def test_sandbox_usd_sums_the_sandboxs_last_run_cost_usd_across_attempts():
+    llm = FakeLLM([_code("raise KeyError('bad')"), _code("print('x =', 1)"), _answer("x", "1")])
+    sandbox = FakeSandbox(
+        [_err("KeyError", "'bad'"), _ok("x = 1\n")],
+        run_cost_usd=0.0005,
+    )
+    result = run_agent(
+        CSV,
+        "data.csv",
+        "what is x?",
+        llm=llm,
+        sandbox_factory=lambda: sandbox,
+        settings=_settings(),
+    )
+    assert result.status == "answered"
+    assert result.sandbox_usd == pytest.approx(0.001)
+
+
+def test_sandbox_usd_counts_a_crashed_attempts_recorded_cost():
+    llm = FakeLLM([_code("x = [0] * 10**9"), _code("print('x =', 1)"), _answer("x", "1")])
+    sandbox = FakeSandbox(
+        [SandboxCrashed("oom"), _ok("x = 1\n")],
+        run_cost_usd=0.0007,
+    )
+    result = run_agent(
+        CSV, "data.csv", "q?", llm=llm, sandbox_factory=lambda: sandbox, settings=_settings()
+    )
+    assert result.status == "answered"
+    assert result.sandbox_usd == pytest.approx(0.0014)
 
 
 # ---- error -> repair -> success ----

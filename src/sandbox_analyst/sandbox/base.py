@@ -67,6 +67,14 @@ class Sandbox(Protocol):
 
     backend: str
 
+    # The lifecycle cost (create + exec + terminate) actually recorded in
+    # the sandbox ledger for the most recent `run()` call -- the single
+    # source of truth for sandbox spend (D-054). Updated even when `run()`
+    # raises SandboxCrashed (a sandbox was still created and billed), but
+    # left unchanged when it raises SandboxUnavailable before a sandbox
+    # was ever created.
+    last_run_cost_usd: float
+
     def __enter__(self) -> "Sandbox": ...
 
     def __exit__(self, exc_type: object, exc: object, tb: object) -> None: ...

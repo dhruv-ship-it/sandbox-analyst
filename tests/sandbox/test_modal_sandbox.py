@@ -245,3 +245,34 @@ def test_ledger_entry_recorded_on_success(monkeypatch, tmp_path):
     assert entry["cpu"] == sandbox._settings.sandbox_cpu
     assert entry["memory_gib"] == sandbox._settings.sandbox_memory_mib / 1024
     assert entry["alive_s"] >= 0
+
+
+def test_last_run_cost_usd_equals_the_recorded_ledger_entry(monkeypatch, tmp_path):
+    handle = FakeSandboxHandle(FakeProcess())
+    _patch_modal(monkeypatch, sandbox_handle=handle)
+    ledger_path = tmp_path / "ledger.jsonl"
+
+    sandbox = ModalSandbox(_settings(), ledger_path=ledger_path)
+    sandbox.run("print(1)")
+
+    entry = json.loads(ledger_path.read_text().strip().splitlines()[0])
+    assert sandbox.last_run_cost_usd == pytest.approx(entry["est_usd"])
+
+
+def test_last_run_cost_usd_is_recorded_even_when_the_sandbox_crashes(monkeypatch, tmp_path):
+    handle = FakeSandboxHandle(FakeProcess())
+
+    def broken_exec(*args, **kwargs):
+        raise modal.exception.ServiceError("worker died")
+
+    handle.exec = broken_exec
+    _patch_modal(monkeypatch, sandbox_handle=handle)
+    ledger_path = tmp_path / "ledger.jsonl"
+
+    sandbox = ModalSandbox(_settings(), ledger_path=ledger_path)
+    with pytest.raises(SandboxCrashed):
+        sandbox.run("print(1)")
+
+    entry = json.loads(ledger_path.read_text().strip().splitlines()[0])
+    assert sandbox.last_run_cost_usd == pytest.approx(entry["est_usd"])
+    assert sandbox.last_run_cost_usd >= 0

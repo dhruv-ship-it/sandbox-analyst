@@ -1,6 +1,14 @@
 """The agent: dataset profiling, events/traces, the answer schema, evidence checks, and the loop."""
 
-from .answer import AnswerItem, AnswerParseError, FinalAnswer, extract_json, parse_final_answer
+from .answer import (
+    AnswerItem,
+    AnswerParseError,
+    FinalAnswer,
+    extract_format_placeholders,
+    extract_json,
+    match_names_to_format,
+    parse_final_answer,
+)
 from .codeparse import extract_code
 from .events import AgentEvent, EventEmitter, EventType, OnEvent, new_run_id
 from .evidence import EvidenceResult, all_evidenced, check_evidence
@@ -23,6 +31,8 @@ __all__ = [
     "FinalAnswer",
     "AnswerParseError",
     "extract_json",
+    "extract_format_placeholders",
+    "match_names_to_format",
     "parse_final_answer",
     "EvidenceResult",
     "check_evidence",

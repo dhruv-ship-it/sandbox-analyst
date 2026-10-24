@@ -53,6 +53,7 @@ class ModalSandbox:
         self._settings = settings
         self._uploads: dict[str, bytes] = {}
         self._ledger_path = ledger_path or DEFAULT_LEDGER_PATH
+        self.last_run_cost_usd = 0.0
 
     def __enter__(self) -> "ModalSandbox":
         return self
@@ -160,6 +161,7 @@ class ModalSandbox:
             usd_per_gib_second=self._settings.usd_per_gib_second,
         )
         append_entry(self._ledger_path, entry)
+        self.last_run_cost_usd = entry.est_usd
 
     def close(self) -> None:
         """No-op: every sandbox is already terminated at the end of run()."""

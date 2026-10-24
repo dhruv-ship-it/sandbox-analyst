@@ -1180,3 +1180,101 @@ run rather than threaded in from outside.
 so the CLI can pre-generate the trace path — rejected, it would make
 every other caller (tests, the future API) pass through an id they
 don't otherwise need, just to serve this one piece of CLI plumbing.
+
+## D-054 — Answer-name normalization happens at the answer boundary, in two steps
+
+**Date:** 2026-10-24
+
+**Decision:** `AnswerItem.name` always strips whitespace and any
+leading `@` (a pydantic `field_validator`, so it fires no matter where
+an `AnswerItem` is constructed). Separately, `parse_final_answer`
+accepts an optional `answer_format` and, when given one, re-cases each
+already-@-stripped name to match that format's own `@name[...]`
+placeholders case-insensitively (`match_names_to_format`); a name that
+doesn't match any placeholder is left alone. `agent/loop.py` passes the
+question's `answer_format` through on both the primary answer call and
+its one JSON-retry call.
+
+**Why:** The P1 smoke run (`docs/smoke-p1.md`) showed the model
+sometimes puts the leading `@` *inside* the JSON `name` field itself
+(producing a doubled `@@` once the CLI's own display adds its own `@`),
+and separately can vary a name's casing relative to the format string's
+placeholders. Splitting this into "always clean" (strip/`@`) and
+"format-aware" (re-case to match placeholders) keeps the first part
+correct even when no `answer_format` is available (e.g. the `sa ask`
+command, which has no DABench format string at all), while the second
+part only activates where there's an actual format to match against.
+
+**Alternatives rejected:** Fixing this only in the CLI's display code —
+rejected, the grader (Task 2) also reads `answer.name` directly and
+needs the same clean value; fixing it once at the pydantic-model
+boundary covers every consumer. Normalizing names by exact match only
+(no case-insensitivity) — rejected, the smoke run's doubled-`@` case
+also showed the model doesn't reliably match a format's own casing.
+
+## D-055 — The sandbox ledger is the single source of truth for `AgentResult.sandbox_usd`
+
+**Date:** 2026-10-24
+
+**Decision:** The `Sandbox` protocol gains a `last_run_cost_usd: float`
+attribute, updated by a backend after every `run()` call to the exact
+lifecycle cost (create + exec + terminate) it just recorded in the
+ledger -- including when `run()` raises `SandboxCrashed` (a sandbox was
+still created and billed), but left unchanged when it raises
+`SandboxUnavailable` before any sandbox was created. `agent/loop.py`
+sums `sandbox.last_run_cost_usd` after every attempt (success or crash)
+into `AgentResult.sandbox_usd` (renamed from `sandbox_est_usd`), instead
+of calling `estimate_cost_usd` a second time against `ExecResult`'s
+exec-only `duration_ms`. `FakeSandbox` gets a `run_cost_usd` constructor
+parameter so tests can script a per-run cost without touching Modal.
+
+**Why:** `docs/smoke-p1.md` found the old exec-only estimate
+(`$0.0002`) was about 4x lower than the ledger's own lifecycle total
+for the same run (`$0.000797`), because `ModalSandbox.run()`'s ledger
+entry spans sandbox creation and teardown while `ExecResult.duration_ms`
+only spans the `exec()` call inside it. Reading the cost back off the
+same backend that just recorded it to the ledger (rather than
+recomputing a different, narrower estimate from a different
+measurement) makes the two numbers agree by construction, and also
+fixes a real gap: the old code never charged anything for a crashed
+attempt at all, even though a real sandbox was created and billed for
+it.
+
+**Alternatives rejected:** Reading `runs/sandbox_ledger.jsonl` back and
+diffing against a pre-run snapshot to recover "this run's share" (the
+alternative D-049 already rejected) — still rejected, fragile under
+concurrency (Task 3's harness runs several tasks' sandboxes at once)
+and unnecessary now that the backend can just report its own last
+recorded cost directly.
+
+## D-056 — LLM timeout set from measured latency, not a round number
+
+**Date:** 2026-10-24
+
+**Decision:** `Settings.llm_timeout_s` default changed from the
+previous round number (120s) to **142s**, computed as
+`max(45, ceil(2 * p95))` over every call recorded as `ok: true` in
+`runs/llm_usage.jsonl` as of this session. Measured (n=20 successful
+calls, `openai/gpt-oss-20b` on NIM): p50 = 14.22s, p95 = 70.57s, max =
+77.30s (linear-interpolation percentile, matching numpy's default
+method). The retry policy (D-037: retry 429/5xx/timeout/connection
+errors, up to 6 attempts, exponential backoff with full jitter) is
+unchanged -- only how long a single attempt waits before giving up and
+retrying.
+
+**Why:** The P1 smoke run's lesson (`docs/smoke-p1.md`) was that a mean
+latency of 54s/task was dominated by two calls that hung all the way to
+the old 120s timeout and only succeeded on retry -- the *tail*, not the
+mean, is what a timeout has to budget for. Doubling the real p95 (not
+the max, and not the mean) gives headroom above the typical slow case
+without waiting through two full worst-case latencies before giving up;
+flooring at 45s guards against a p95 computed from too few or
+unusually fast samples producing an unreasonably short timeout.
+
+**Alternatives rejected:** Doubling the mean — rejected, this project's
+own smoke run is the direct counterexample for why the mean
+under-represents tail latency here. Doubling the max — rejected, one
+outlier (e.g. a provider hiccup) would then set the timeout for every
+future call. Leaving the timeout at a round guessed number — rejected,
+exactly the kind of unmeasured constant this task exists to replace
+with data.

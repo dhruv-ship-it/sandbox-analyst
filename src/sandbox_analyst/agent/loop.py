@@ -30,7 +30,6 @@ from sandbox_analyst.sandbox import (
     SandboxCrashed,
     SandboxUnavailable,
 )
-from sandbox_analyst.sandbox.ledger import estimate_cost_usd
 
 from . import prompts
 from .answer import AnswerItem, AnswerParseError, FinalAnswer, parse_final_answer
@@ -80,7 +79,7 @@ class AgentResult:
     total_prompt_tokens: int
     total_completion_tokens: int
     total_latency_ms: int
-    sandbox_est_usd: float
+    sandbox_usd: float
 
 
 class _StopRun(Exception):
@@ -263,7 +262,7 @@ def _run_answer_step(
     _check_token_budget(state)
 
     try:
-        return parse_final_answer(response.text)
+        return parse_final_answer(response.text, answer_format)
     except AnswerParseError as exc:
         retry_messages = [
             Message("system", prompts.ANSWER_SYSTEM_PROMPT),
@@ -273,7 +272,7 @@ def _run_answer_step(
         state.add_llm_usage(retry_response)
         _check_token_budget(state)
         try:
-            return parse_final_answer(retry_response.text)
+            return parse_final_answer(retry_response.text, answer_format)
         except AnswerParseError:
             return None
 
@@ -376,6 +375,7 @@ def _run_attempts(
         except SandboxCrashed as exc:
             state.consecutive_crashes += 1
             state.last_exec_error_signature = None
+            state.total_sandbox_usd += sandbox.last_run_cost_usd
             emitter.emit("exec_result", attempt_n, {"crashed": True, "error": str(exc)})
             observation = prompts.observation_for_crash()
             if state.consecutive_crashes >= 2:
@@ -404,14 +404,7 @@ def _run_attempts(
 
         state.consecutive_crashes = 0
         image_paths = _write_artifacts(run_id, attempt_n, exec_result.images)
-        est_usd = estimate_cost_usd(
-            alive_s=exec_result.duration_ms / 1000,
-            cpu=settings.sandbox_cpu,
-            memory_gib=settings.sandbox_memory_mib / 1024,
-            usd_per_core_second=settings.usd_per_core_second,
-            usd_per_gib_second=settings.usd_per_gib_second,
-        )
-        state.total_sandbox_usd += est_usd
+        state.total_sandbox_usd += sandbox.last_run_cost_usd
         emitter.emit("exec_result", attempt_n, _exec_result_payload(exec_result, image_paths))
 
         if exec_result.timed_out:
@@ -606,7 +599,7 @@ def run_agent(
             "total_prompt_tokens": state.total_prompt_tokens,
             "total_completion_tokens": state.total_completion_tokens,
             "total_latency_ms": state.total_latency_ms,
-            "sandbox_est_usd": state.total_sandbox_usd,
+            "sandbox_usd": state.total_sandbox_usd,
         },
     )
 
@@ -623,5 +616,5 @@ def run_agent(
         total_prompt_tokens=state.total_prompt_tokens,
         total_completion_tokens=state.total_completion_tokens,
         total_latency_ms=state.total_latency_ms,
-        sandbox_est_usd=state.total_sandbox_usd,
+        sandbox_usd=state.total_sandbox_usd,
     )

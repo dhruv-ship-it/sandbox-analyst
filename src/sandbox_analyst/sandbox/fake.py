@@ -31,12 +31,15 @@ class FakeSandbox:
         self,
         script: Iterable[ExecResult | Exception] | None = None,
         max_upload_mb: int = 25,
+        run_cost_usd: float = 0.0,
     ) -> None:
         self._queue: deque[ExecResult | Exception] = deque(script or [])
         self._max_upload_mb = max_upload_mb
+        self._run_cost_usd = run_cost_usd
         self.uploads: dict[str, bytes] = {}
         self.runs: list[str] = []
         self.closed = False
+        self.last_run_cost_usd = 0.0
 
     def __enter__(self) -> "FakeSandbox":
         return self
@@ -56,7 +59,11 @@ class FakeSandbox:
             raise SandboxUnavailable("FakeSandbox's scripted result queue is exhausted")
         item = self._queue.popleft()
         if isinstance(item, Exception):
+            if not isinstance(item, SandboxUnavailable):
+                # A real sandbox was created and billed even though this run failed.
+                self.last_run_cost_usd = self._run_cost_usd
             raise item
+        self.last_run_cost_usd = self._run_cost_usd
         return item
 
     def close(self) -> None:
