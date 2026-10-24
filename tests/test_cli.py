@@ -1,0 +1,109 @@
+import pytest
+
+from sandbox_analyst.bench.dabench import Question
+from sandbox_analyst.cli import build_parser, select_smoke_questions
+
+
+def _questions(level_counts: dict[str, int]) -> list[Question]:
+    questions = []
+    next_id = 0
+    for level, count in level_counts.items():
+        for _ in range(count):
+            questions.append(
+                Question(
+                    id=next_id,
+                    question="q",
+                    concepts=[],
+                    constraints="c",
+                    format="f",
+                    file_name=f"{level}-{next_id}.csv",
+                    level=level,
+                )
+            )
+            next_id += 1
+    return questions
+
+
+# ---- argument parsing ----
+
+
+def test_ask_parses_csv_path_and_question():
+    args = build_parser().parse_args(["ask", "data.csv", "what is the mean?"])
+    assert args.command == "ask"
+    assert args.csv_path == "data.csv"
+    assert args.question == "what is the mean?"
+
+
+def test_dabench_smoke_defaults():
+    args = build_parser().parse_args(["dabench-smoke"])
+    assert args.command == "dabench-smoke"
+    assert args.n == 5
+    assert args.seed == 2026
+
+
+def test_dabench_smoke_accepts_explicit_n_and_seed():
+    args = build_parser().parse_args(["dabench-smoke", "--n", "10", "--seed", "7"])
+    assert args.n == 10
+    assert args.seed == 7
+
+
+def test_no_command_is_an_error():
+    with pytest.raises(SystemExit):
+        build_parser().parse_args([])
+
+
+def test_dabench_smoke_rejects_an_unrecognized_split_option():
+    # There must be no way to ask this CLI to touch the held-out test split.
+    with pytest.raises(SystemExit):
+        build_parser().parse_args(["dabench-smoke", "--split", "test"])
+
+
+# ---- select_smoke_questions ----
+
+
+def test_select_smoke_questions_spreads_2_2_1_for_n_5():
+    questions = _questions({"easy": 10, "medium": 10, "hard": 10})
+    selected = select_smoke_questions(questions, n=5, seed=2026)
+    by_level = {"easy": 0, "medium": 0, "hard": 0}
+    for q in selected:
+        by_level[q.level] += 1
+    assert by_level == {"easy": 2, "medium": 2, "hard": 1}
+    assert len(selected) == 5
+
+
+def test_select_smoke_questions_is_deterministic_for_a_fixed_seed():
+    questions = _questions({"easy": 10, "medium": 10, "hard": 10})
+    first = select_smoke_questions(questions, n=5, seed=2026)
+    second = select_smoke_questions(questions, n=5, seed=2026)
+    assert [q.id for q in first] == [q.id for q in second]
+
+
+def test_select_smoke_questions_different_seeds_can_select_differently():
+    questions = _questions({"easy": 10, "medium": 10, "hard": 10})
+    a = select_smoke_questions(questions, n=5, seed=1)
+    b = select_smoke_questions(questions, n=5, seed=2)
+    assert [q.id for q in a] != [q.id for q in b]
+
+
+def test_select_smoke_questions_even_split_for_n_divisible_by_3():
+    questions = _questions({"easy": 10, "medium": 10, "hard": 10})
+    selected = select_smoke_questions(questions, n=6, seed=2026)
+    by_level = {"easy": 0, "medium": 0, "hard": 0}
+    for q in selected:
+        by_level[q.level] += 1
+    assert by_level == {"easy": 2, "medium": 2, "hard": 2}
+
+
+def test_select_smoke_questions_raises_when_a_level_is_short():
+    questions = _questions({"easy": 1, "medium": 10, "hard": 10})
+    with pytest.raises(ValueError, match="easy"):
+        select_smoke_questions(questions, n=5, seed=2026)
+
+
+def test_select_smoke_questions_ignores_questions_outside_the_given_pool():
+    # Simulates "dev-only": questions not passed in at all can never be selected.
+    dev_questions = _questions({"easy": 2, "medium": 2, "hard": 1})
+    selected = select_smoke_questions(dev_questions, n=5, seed=2026)
+    dev_ids = {q.id for q in dev_questions}
+    assert all(q.id in dev_ids for q in selected)
+    assert len(selected) == 5

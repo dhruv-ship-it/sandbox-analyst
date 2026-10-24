@@ -1104,3 +1104,79 @@ deciding to `continue` -- rejected, it's the same number of exit points
 with none of the benefit (every `continue` site would still need the
 full status-tuple construction logic, just without `raise`'s "this
 really does stop everything" guarantee).
+
+## D-051 — The smoke selection's level spread (2/2/1 for n=5) is "divide evenly, remainder to earlier levels first"
+
+**Date:** 2026-10-24
+
+**Decision:** `cli.select_smoke_questions` spreads `n` across
+`["easy", "medium", "hard"]` with `base, remainder = divmod(n,
+3)`, giving every level `base` questions and then one extra each to
+the first `remainder` levels in that fixed order. For `n=5` this gives
+exactly the requested 2 easy / 2 medium / 1 hard; for `n=3`/`6` it
+gives an even 1/1/1 or 2/2/2 split. Within each level, the candidate
+pool is sorted by question id (for a stable starting order) and then
+shuffled with `random.Random(seed)` before taking the first `count`.
+
+**Why:** This is the simplest rule that reproduces the one example the
+task spec gives (2/2/1 at n=5) and generalizes sensibly to other `n`
+without hardcoding a table of per-n splits. It deliberately does NOT
+mirror the dev split's own easy/medium/hard proportions (21/25/28,
+roughly 28/34/38%) -- the task asked for a spread across levels for a
+human to eyeball quickly, not a representative sample.
+
+**Alternatives rejected:** Proportional allocation matching the dev
+split's actual level distribution — rejected, it wouldn't reproduce
+the spec's own 2/2/1 example for n=5 (which is closer to even than
+proportional-to-28/34/38 would give).
+
+## D-052 — `sa dabench-smoke` is dev-only by construction, not by a flag check
+
+**Date:** 2026-10-24
+
+**Decision:** `cli.load_dev_questions()` is the only place
+`dabench-smoke` gets its question pool from, and it calls
+`bench.split.load_split("dev")` -- never `"test"` -- with no CLI flag,
+environment variable, or code path anywhere in `cli.py` that can reach
+`load_split("test")`. "Never touches the test split" is therefore true
+because the test split is simply never named in this file, not because
+of a runtime guard that could be bypassed or misconfigured.
+
+**Why:** A structural guarantee (the code to load the test split
+doesn't exist in this command at all) is strictly stronger than a
+runtime check (e.g. "refuse if `args.split == 'test'`"), which would
+still require a `--split` flag to exist in the first place and be
+trusted not to default to the wrong thing. This also matches
+`load_split("test")`'s own design (D-012/CLAUDE.md rule 11): the
+held-out split is meant to be reached deliberately, for a real frozen
+evaluation run, not as an option sitting next to `dev` in a smoke
+script.
+
+**Alternatives rejected:** A `--split {dev,test}` flag defaulting to
+`dev` — rejected outright; even with a safe default, its mere
+existence is exactly the kind of accidental-tuning risk the test-set
+discipline rule exists to prevent.
+
+## D-053 — The CLI reads trace/usage-log run_id from the first emitted event, not generated up front
+
+**Date:** 2026-10-24
+
+**Decision:** `cli._LazyTraceWriter` has no `run_id` at construction
+time; it creates its `TraceWriter` lazily, the first time it's called
+as an `on_event` subscriber, using that event's own `run_id`. `sa ask`
+composes this with console printing (`_TracingPrinter`);
+`sa dabench-smoke` uses the trace-only variant per question, with no
+printing, to keep the per-question summary table readable.
+
+**Why:** `run_agent` generates its own `run_id` internally
+(`events.new_run_id()`) and has no parameter for a caller to inject
+one -- by design, the CLI is not meant to know or choose a run's id in
+advance. Since every `AgentEvent` already carries `run_id`, waiting
+for the first event to arrive is the only point at which the CLI
+*can* know it, so the trace file's name is naturally derived from the
+run rather than threaded in from outside.
+
+**Alternatives rejected:** Adding a `run_id` parameter to `run_agent`
+so the CLI can pre-generate the trace path — rejected, it would make
+every other caller (tests, the future API) pass through an id they
+don't otherwise need, just to serve this one piece of CLI plumbing.

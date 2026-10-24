@@ -1,0 +1,285 @@
+"""The `sa` command-line entry point: `sa ask` and `sa dabench-smoke`.
+
+`dabench-smoke` only ever loads the DEV split (`load_dev_questions`
+below never calls `load_split("test")`) -- it structurally cannot touch
+the held-out test split, per CLAUDE.md's test-set-discipline rule. It is
+a human-eyeball smoke check, not a grader: it prints predicted vs. label
+answer tags side by side and leaves scoring to a later task.
+"""
+
+import argparse
+import random
+import sys
+from pathlib import Path
+
+from sandbox_analyst.agent import TraceWriter, run_agent
+from sandbox_analyst.agent.events import AgentEvent
+from sandbox_analyst.bench.dabench import Question, load_labels, load_questions
+from sandbox_analyst.bench.split import DEFAULT_QUESTIONS_PATH, load_split
+from sandbox_analyst.config import Settings
+from sandbox_analyst.llm import LLMConfigError, make_llm
+from sandbox_analyst.llm.usage import DEFAULT_USAGE_LOG_PATH
+from sandbox_analyst.sandbox import make_sandbox
+
+LEVEL_ORDER = ["easy", "medium", "hard"]
+DEFAULT_LABELS_PATH = Path("data/dabench/da-dev-labels.jsonl")
+DEFAULT_TABLES_DIR = Path("data/dabench/da-dev-tables")
+
+
+class _LazyTraceWriter:
+    """An on_event subscriber that writes a trace, keyed by the run_id in the first event."""
+
+    def __init__(self) -> None:
+        self._writer: TraceWriter | None = None
+
+    @property
+    def path(self) -> Path | None:
+        return self._writer.path if self._writer is not None else None
+
+    def __call__(self, event: AgentEvent) -> None:
+        if self._writer is None:
+            self._writer = TraceWriter(event.run_id)
+        self._writer(event)
+
+
+class _TracingPrinter(_LazyTraceWriter):
+    """Writes the trace AND prints a readable step-by-step timeline as events arrive."""
+
+    def __call__(self, event: AgentEvent) -> None:
+        super().__call__(event)
+        _print_event(event)
+
+
+def _print_event(event: AgentEvent) -> None:
+    p = event.payload
+    if event.type == "run_started":
+        print(f"run {event.run_id} ({p['prompt_version']}): {p['question']}")  # noqa: T201
+    elif event.type == "code":
+        code = p.get("code")
+        if code is None:
+            print(f"  attempt {event.attempt}: generate -> no code block found")  # noqa: T201
+        else:
+            n_lines = len(str(code).splitlines())
+            print(f"  attempt {event.attempt}: generate -> {n_lines} line(s) of code")  # noqa: T201
+    elif event.type == "static_check":
+        status = "ok" if p["ok"] else f"FAILED ({len(p['violations'])} violation(s))"
+        print(f"  attempt {event.attempt}: check -> {status}")  # noqa: T201
+    elif event.type == "exec_result":
+        print(f"  attempt {event.attempt}: exec -> {_exec_summary(p)}")  # noqa: T201
+    elif event.type == "answer":
+        names = ", ".join(a["name"] for a in p["answers"])
+        print(f"  attempt {event.attempt}: answer -> {names}")  # noqa: T201
+    elif event.type == "evidence":
+        results = p["results"]
+        n_passed = sum(1 for r in results if r["passed"])
+        print(f"  attempt {event.attempt}: evidence -> {n_passed}/{len(results)} passed")  # noqa: T201
+    elif event.type == "observation":
+        first_line = str(p["text"]).splitlines()[0] if p.get("text") else ""
+        print(f"  attempt {event.attempt}: observation -> {first_line}")  # noqa: T201
+    elif event.type == "run_finished":
+        print(f"run finished: status={p['status']}")  # noqa: T201
+
+
+def _exec_summary(payload: dict) -> str:
+    if payload.get("crashed"):
+        return "CRASHED"
+    if payload.get("unavailable"):
+        return "UNAVAILABLE"
+    if payload.get("timed_out"):
+        return "TIMEOUT"
+    error = payload.get("error")
+    if error:
+        return f"ERROR {error['name']}: {error['value']}"
+    return f"ok ({payload.get('duration_ms', 0)}ms)"
+
+
+def _count_lines(path: Path) -> int:
+    if not path.exists():
+        return 0
+    with path.open(encoding="utf-8") as f:
+        return sum(1 for _ in f)
+
+
+def cmd_ask(csv_path: str, question: str) -> int:
+    settings = Settings()
+    try:
+        llm = make_llm(settings)
+    except LLMConfigError as exc:
+        print(f"LLM configuration error: {exc}", file=sys.stderr)  # noqa: T201
+        return 1
+
+    sandbox = make_sandbox(settings)
+    path = Path(csv_path)
+    csv_bytes = path.read_bytes()
+
+    tracer = _TracingPrinter()
+    result = run_agent(
+        csv_bytes,
+        path.name,
+        question,
+        llm=llm,
+        sandbox_factory=lambda: sandbox,
+        settings=settings,
+        on_event=tracer,
+    )
+
+    if result.status == "llm_error":
+        print(file=sys.stderr)  # noqa: T201
+        print("stopped: an external LLM service failure occurred.", file=sys.stderr)  # noqa: T201
+        print(f"resume with: uv run sa ask {csv_path} {question!r}", file=sys.stderr)  # noqa: T201
+
+    print()  # noqa: T201
+    print(f"status: {result.status}")  # noqa: T201
+    for answer in result.answers:
+        print(f"  @{answer.name}[{answer.value}]")  # noqa: T201
+    if result.explanation:
+        print(f"explanation: {result.explanation}")  # noqa: T201
+    print()  # noqa: T201
+    print("code:")  # noqa: T201
+    print(result.code)  # noqa: T201
+    if result.images:
+        print("images:")  # noqa: T201
+        for image_path in result.images:
+            print(f"  {image_path}")  # noqa: T201
+    print(  # noqa: T201
+        f"tokens: prompt={result.total_prompt_tokens} completion={result.total_completion_tokens} "
+        f"latency_ms={result.total_latency_ms} sandbox_est_usd=${result.sandbox_est_usd:.4f}"
+    )
+    if tracer.path is not None:
+        print(f"trace: {tracer.path}")  # noqa: T201
+
+    return 0 if result.status == "answered" else 1
+
+
+def _level_counts(n: int) -> dict[str, int]:
+    """Spread n across LEVEL_ORDER as evenly as possible, extra items to earlier levels first."""
+    base, remainder = divmod(n, len(LEVEL_ORDER))
+    counts = {level: base for level in LEVEL_ORDER}
+    for level in LEVEL_ORDER[:remainder]:
+        counts[level] += 1
+    return counts
+
+
+def select_smoke_questions(questions: list[Question], n: int, seed: int) -> list[Question]:
+    """Deterministically pick n questions with a seeded spread across difficulty levels."""
+    counts = _level_counts(n)
+    by_level: dict[str, list[Question]] = {level: [] for level in LEVEL_ORDER}
+    for q in questions:
+        if q.level in by_level:
+            by_level[q.level].append(q)
+
+    selected: list[Question] = []
+    for level in LEVEL_ORDER:
+        pool = sorted(by_level[level], key=lambda q: q.id)
+        random.Random(seed).shuffle(pool)
+        count = counts[level]
+        if len(pool) < count:
+            raise ValueError(f"not enough {level!r} dev questions: need {count}, have {len(pool)}")
+        selected.extend(pool[:count])
+    return selected
+
+
+def load_dev_questions() -> list[Question]:
+    """DEV-only, by construction: this never calls load_split("test")."""
+    dev = load_split("dev")
+    all_questions = load_questions(DEFAULT_QUESTIONS_PATH)
+    dev_ids = set(dev["question_ids"])
+    return [q for q in all_questions if q.id in dev_ids]
+
+
+def cmd_dabench_smoke(n: int, seed: int) -> int:
+    settings = Settings()
+    try:
+        llm = make_llm(settings)
+    except LLMConfigError as exc:
+        print(f"LLM configuration error: {exc}", file=sys.stderr)  # noqa: T201
+        return 1
+
+    dev_questions = load_dev_questions()
+    selected = select_smoke_questions(dev_questions, n, seed)
+    labels_by_id = {label.id: label for label in load_labels(DEFAULT_LABELS_PATH)}
+
+    requests_before = _count_lines(DEFAULT_USAGE_LOG_PATH)
+
+    print(f"{'id':>5}  {'level':<6} {'status':<16} {'attempts':>8}  predicted | label")  # noqa: T201
+    token_totals: list[int] = []
+    latency_totals: list[int] = []
+    sandbox_usd_total = 0.0
+    n_answered = 0
+
+    for q in selected:
+        csv_bytes = (DEFAULT_TABLES_DIR / q.file_name).read_bytes()
+        sandbox = make_sandbox(settings)
+        tracer = _LazyTraceWriter()
+        result = run_agent(
+            csv_bytes,
+            q.file_name,
+            q.question,
+            llm=llm,
+            sandbox_factory=lambda sb=sandbox: sb,
+            settings=settings,
+            on_event=tracer,
+            constraints=q.constraints,
+            answer_format=q.format,
+        )
+
+        predicted = " ".join(f"@{a.name}[{a.value}]" for a in result.answers) or "(none)"
+        label = labels_by_id.get(q.id)
+        expected = " ".join(f"@{name}[{value}]" for name, value in label.answers) if label else "?"
+        print(  # noqa: T201
+            f"{q.id:>5}  {q.level or '?':<6} {result.status:<16} {len(result.attempts):>8}  "
+            f"{predicted} | {expected}"
+        )
+
+        if result.status == "answered":
+            n_answered += 1
+        token_totals.append(result.total_prompt_tokens + result.total_completion_tokens)
+        latency_totals.append(result.total_latency_ms)
+        sandbox_usd_total += result.sandbox_est_usd
+
+    requests_after = _count_lines(DEFAULT_USAGE_LOG_PATH)
+    mean_tokens = sum(token_totals) / len(token_totals) if token_totals else 0.0
+    mean_latency = sum(latency_totals) / len(latency_totals) if latency_totals else 0.0
+
+    print()  # noqa: T201
+    print(  # noqa: T201
+        f"answered {n_answered}/{len(selected)}  mean_tokens={mean_tokens:.0f}  "
+        f"mean_latency_ms={mean_latency:.0f}  sandbox_est_usd=${sandbox_usd_total:.4f}  "
+        f"llm_requests_used={requests_after - requests_before}"
+    )
+    return 0
+
+
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(prog="sa", description="Sandbox Analyst CLI")
+    subparsers = parser.add_subparsers(dest="command", required=True)
+
+    ask_parser = subparsers.add_parser("ask", help="ask a question about a CSV file")
+    ask_parser.add_argument("csv_path", help="path to a local CSV file")
+    ask_parser.add_argument("question", help="the question to ask about the CSV")
+
+    smoke_parser = subparsers.add_parser(
+        "dabench-smoke",
+        help="run a small DEV-split smoke check (never touches the held-out test split)",
+    )
+    smoke_parser.add_argument("--n", type=int, default=5, help="number of DEV questions to run")
+    smoke_parser.add_argument(
+        "--seed", type=int, default=2026, help="seed for deterministic question selection"
+    )
+
+    return parser
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = build_parser()
+    args = parser.parse_args(argv)
+    if args.command == "ask":
+        return cmd_ask(args.csv_path, args.question)
+    if args.command == "dabench-smoke":
+        return cmd_dabench_smoke(args.n, args.seed)
+    parser.error(f"unknown command: {args.command}")
+    return 2
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
