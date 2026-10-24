@@ -954,3 +954,30 @@ first (checking single-number second) — rejected, this is the
 ordering that gets the far more common `"12,345"`-is-one-number case
 wrong. A full tokenizer/parser for answer values — rejected as
 over-engineering for a format this simple.
+
+## D-046 — Every LLM call is a fresh two-message exchange, not accumulated chat history
+
+**Date:** 2026-10-24
+
+**Decision:** `agent/prompts.py` builds every call -- the first code
+generation, every repair, the answer step, and the one answer-JSON
+retry -- as exactly two messages: a system prompt and one user
+message. A repair call's user message (`build_repair_message`) embeds
+the previous script and the observation text directly; it never
+replays the model's own prior replies or re-sends the dataset preview.
+
+**Why:** Each attempt is already a complete, independent script (D-006
+"every attempt runs a complete script in a fresh sandbox"), so the
+model doesn't need the full conversation to write a corrected one --
+the previous code plus what went wrong is sufficient context. This
+also keeps the per-task token budget (60,000, landing in Task 3) from
+being dominated by re-sending the ~600-900-token dataset preview on
+every one of up to 4 attempts, and keeps every prompt-building
+function pure and trivially testable (built from explicit arguments,
+not from mutable conversation state).
+
+**Alternatives rejected:** Accumulating full chat history across
+attempts — rejected, it would re-send the preview block repeatedly
+(token cost) and makes "no message reveals the attempt count" harder
+to reason about (a growing message list is itself a count, even if no
+message states one in words).
