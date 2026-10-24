@@ -41,17 +41,17 @@ single-shot vs. up-to-1/2/3-repair accuracy; runtime-error rate; token
 usage and latency per question. (2 of 3 planned dev runs recorded so
 far -- `docs/results-dev.md`, D-063.)
 
-## P4 — API and UI (API done; UI is Prompt 6)
+## P4 — API and UI (done)
 
 FastAPI app with Server-Sent Events for the step timeline (done --
 `src/sandbox_analyst/api/`, `docs/api.md`); React (Vite) frontend
-(not started -- `GET /` serves a placeholder page until then); trace
-display.
+(done -- `web/`, `docs/ui.md`); trace display (the Result panel's
+trace download link, and the live timeline itself).
 
 **Exit check:** The live step timeline (code written -> checked -> run
--> result) works end to end locally. Met for the API (verified with a
-real Groq + Modal smoke run, `docs/api.md`); the UI's own version of
-this check is Prompt 6's.
+-> result) works end to end locally. Met for both the API and the UI,
+each verified with its own real Groq + Modal smoke run
+(`docs/api.md`, `docs/ui.md`).
 
 ## P5 — CI and deploy (CI done; the Azure resource is created by hand)
 
