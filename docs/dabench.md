@@ -72,6 +72,25 @@ places.` A multi-part question has one `@tag[value]` per sub-answer.
 The grader (a later task) parses answers against this tag format, not
 free text.
 
+## Dev/test split
+
+Split **by CSV file**, not by question (D-012), with a fixed seed
+(`SPLIT_SEED = 2026`, D-041): the 52 distinct files are sorted, then
+shuffled with that seed, and files are added to dev until dev's
+cumulative question count reaches at least 20% of all 257 questions.
+Recorded in `eval/split.json` (committed -- file names and question
+ids only, never question or label content):
+
+| Split | Files | Questions | easy | medium | hard |
+|---|---|---|---|---|---|
+| dev | 11 | 74 | 21 | 25 | 28 |
+| test | 41 | 183 | 61 | 62 | 60 |
+
+`load_split("dev")` (`src/sandbox_analyst/bench/split.py`) works
+freely. `load_split("test")` raises `SplitLockedError` unless the git
+working tree is clean **and** `HEAD` is tagged `frozen-*` -- see
+CLAUDE.md's test-set-discipline rule, added once this split existed.
+
 ## Licensing
 
 Treated as **CC BY-NC 4.0** per the original InfiAgent-DABench paper
@@ -82,5 +101,30 @@ downloaded by script into a gitignored directory.
 
 ## Example question
 
-_Added after Task 3 (dev/test split), from the dev split only -- see
-below._
+Taken from the **dev** split only (`id=32`, file
+`imp.score.ldlr.metabolome.csv`), per the test-set-discipline rule:
+
+```json
+{
+  "id": 32,
+  "question": "Calculate the mean and standard deviation of the \"importance.score\" column.",
+  "concepts": ["Summary Statistics"],
+  "constraints": "Calculate the mean and standard deviation to two decimal places for the \"importance.score\" column. Ignore any null or missing values in the calculations. The calculations are to be done using standard statistical methods without applying any transformations or filters to the data.",
+  "format": "@importance_score_mean[mean] @importance_score_std[std_dev] where \"mean\" and \"std_dev\" are non-negative numbers rounded to two decimal places.",
+  "file_name": "imp.score.ldlr.metabolome.csv",
+  "level": "easy"
+}
+```
+
+Its label (two sub-answers, matching the two `@tag[...]` slots in
+`format`):
+
+```json
+{
+  "id": 32,
+  "common_answers": [
+    ["importance_score_std", "0.01"],
+    ["importance_score_mean", "0.0"]
+  ]
+}
+```

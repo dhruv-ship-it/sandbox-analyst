@@ -33,6 +33,12 @@ Instructions for any AI agent (or human) working in this repository.
    the exact command to resume with, rather than retrying in a loop.
 10. Never poll or loop while waiting on something. If something needs a
     human, stop and say exactly what is needed.
+11. Test-set discipline, now that `eval/split.json` exists: never open,
+    print, or inspect any TEST question, label, or CSV content.
+    Counts and file names only. Any example used in documentation
+    comes from DEV only. `load_split("test")` itself enforces a clean,
+    `frozen-*`-tagged working tree (see `bench/split.py`); this rule
+    covers the human/agent side of the same discipline.
 
 ## Commands (PowerShell)
 
@@ -56,19 +62,26 @@ src/sandbox_analyst/
                       # ModalSandbox, budget ledger
   guard/             # AST-only static checker: policy.py (allowlists/
                       # denylists as data) + check()
-tests/               # unit tests, all offline (FakeSandbox / fake SDK)
-docs/                # public design docs (PLAN.md, sandbox-env.md, security.md)
+  llm/               # provider-agnostic LLM client (record/replay for tests)
+  bench/             # InfiAgent-DABench download/verify, schema, dev/test split
+eval/
+  split.json         # committed: file names + question ids + counts per
+                      # split/level only, never question or label content
+tests/               # unit tests, all offline (FakeSandbox / FakeLLM / fakes)
+docs/                # public design docs (PLAN.md, sandbox-env.md, security.md,
+                      # llm.md, dabench.md)
 notes/               # PRIVATE engineering notes, gitignored, never committed
+data/                # downloaded DABench data, gitignored, never committed
 ```
 
 Planned (later tasks, see `docs/PLAN.md`):
 
 ```
 src/sandbox_analyst/
-  llm/               # provider-agnostic LLM client (record/replay for tests)
-  agent/             # the write -> check -> run -> repair loop
-  bench/             # InfiAgent-DABench download, split, grader
-  api/                # FastAPI app (SSE step timeline)
+  agent/             # the write -> check -> run -> repair loop; profile.py
+                      # (dataset profiler) lands here first
+  bench/             # + grader (this prompt only builds download/split)
+api/                 # FastAPI app (SSE step timeline)
 web/                 # React UI
 ```
 

@@ -799,3 +799,27 @@ should be reproducible against a fixed dataset version. Letting
 verification auto-update its expected counts on mismatch — rejected
 outright, that's not verification, that's just recording whatever
 showed up.
+
+## D-041 — Split seed and resulting counts
+
+**Date:** 2026-10-24
+
+**Decision:** `SPLIT_SEED = 2026`. Splitting the 52 distinct CSV files
+(sorted, then shuffled with that seed) and adding files to dev until
+dev's cumulative question count reaches at least 20% of all 257
+questions produced: **dev = 11 files / 74 questions** (easy 21, medium
+25, hard 28), **test = 41 files / 183 questions** (easy 61, medium 62,
+hard 60). Recorded in `eval/split.json` (committed — file names and
+question ids only, per the test-set-discipline rule this task also
+adds to `CLAUDE.md`).
+
+**Why:** Splitting by file rather than by question (D-012) means the
+dev fraction lands close to, but not exactly at, 20% — it's a property
+of which files' question counts happen to cross the threshold first in
+shuffled order, not a number tuned to hit exactly 20.0%. 28.8% dev was
+accepted as-is rather than re-seeding to chase a rounder number, since
+re-seeding until a "nicer" split appears would itself be a (very mild)
+form of tuning against the split.
+
+**Alternatives rejected:** Re-seeding to land closer to exactly 20% —
+rejected for the reason above; the threshold is a floor, not a target.
