@@ -2094,3 +2094,135 @@ separate, real package with its own version lifecycle and the budget
 language doesn't carve out an exception for test-only libraries beyond
 the jsdom/vitest combination the task itself names.
 
+## D-083 — UI fixtures are exported from the real agent loop, not hand-written
+
+**Date:** 2026-10-25
+
+**Decision:** `scripts/export_ui_fixtures.py` builds `FakeLLM` +
+`FakeSandbox` scripts for seven scenarios (happy path; error -> repair
+-> success; checker block -> repair; crash -> repair; two-crashes ->
+tool_failure; token-budget exceeded; a chart run) copied from the
+existing patterns in `tests/agent/test_loop.py`, runs each through the
+real `run_agent`, and writes the exact `AgentEvent` sequence each one
+produces to `web/src/fixtures/<name>.json`. The reducer's test suite
+(`web/src/timeline.test.ts`) imports these JSON files directly rather
+than constructing `AgentEvent` objects by hand in TypeScript.
+
+**Why:** A hand-written TypeScript fixture encodes *my* assumption
+about what the backend emits, which can drift silently from what
+`agent/loop.py` actually emits the next time it changes (a renamed
+payload key, a reordered event, a new field) -- exactly the
+frontend/backend drift this task's own `DECISIONS.md` note calls out
+as the thing to avoid. Running the real loop means every fixture is
+provably a real, producible event sequence, and regenerating them
+(`uv run python scripts/export_ui_fixtures.py`) after a future agent
+change is the mechanism that surfaces any shape drift immediately, as
+a diff in `web/src/fixtures/*.json` plus failing reducer tests --
+rather than the UI quietly misinterpreting a changed event shape.
+
+**Alternatives rejected:** Hand-authoring fixture JSON to match current
+docs -- rejected for the drift reason above. Driving the fixtures
+through the public API (`api/runs.py`) instead of `run_agent` directly
+-- rejected as unnecessary indirection; the API only repackages the
+same `AgentEvent` objects (`_event_to_dict`), so calling `run_agent`
+directly is the more direct, more unit-test-like source of truth.
+
+## D-084 — `timeline.ts`'s reducer is defensively pure: it dedupes by `seq` and never regresses an attempt's phase, independent of delivery order
+
+**Date:** 2026-10-25
+
+**Decision:** `reduceTimeline(state, event)` keeps its own
+`seenSeqs: ReadonlySet<number>` and no-ops on an already-seen `seq`,
+rather than trusting `useRunEvents` to have deduped first. Each
+attempt's `phase` only ever moves forward through a fixed rank table
+(`writing_code < checked < running < result < repairing < answered`);
+applying an event that implies an earlier phase than the attempt
+already has is a no-op on `phase` specifically (every other field the
+event carries -- code, violations, exec result, evidence, ... -- is
+still recorded). `run_started` additionally never overwrites `status`
+back to `"running"` once a `run_finished` has already been applied, the
+one place the rank-table trick doesn't naturally apply (there's no
+per-attempt rank for top-level `status`). Attempt completion
+("answered") is derived independently in two places that both reach
+the same conclusion regardless of arrival order: the `evidence` handler
+sets it directly whenever every evidence item already present has
+passed, and `run_finished` with `status: "answered"` also marks the
+last attempt answered as a backstop.
+
+**Why:** The reducer is the thing this task's own fixture tests exercise
+directly with "plus duplicate and out-of-order seq handling" as an
+explicit requirement, not just a property of the SSE hook sitting in
+front of it -- so it has to hold up when fed a fixture array with a
+repeated or reordered event, in isolation, with no hook involved. Unit
+tests (`web/src/timeline.test.ts`) confirm this by feeding a fixture's
+events reversed and duplicated and asserting the final state still
+matches the forward, deduped pass.
+
+**Alternatives rejected:** Relying solely on `useRunEvents`' own seq-Map
+dedupe (D-085) and leaving the reducer naive -- rejected, it would make
+the reducer's own tests either untestable for this property or
+dishonest (asserting behavior the reducer doesn't actually provide,
+only its caller does).
+
+## D-085 — SSE replay dedupe lives in `useRunEvents` as a `Map<seq, event>`, not an array with manual linear scans
+
+**Date:** 2026-10-25
+
+**Decision:** `useRunEvents` keeps a `Map<number, AgentEvent>` in a
+ref, keyed by `seq`; on each `message`, an already-present `seq` is
+dropped, and the emitted array is `Array.from(map.values()).sort((a,
+b) => a.seq - b.seq)`. The hook does not implement its own reconnect
+loop -- the browser's native `EventSource` already retries a dropped
+connection on its own, and the server already replays every recorded
+event on a fresh connection (docs/api.md) -- `onerror` is a documented
+no-op rather than a manual retry.
+
+**Why:** This task's rule against polling/manual retry loops (CLAUDE.md
+rule 10, restated for this task) is explicitly satisfied by *not*
+hand-rolling reconnect logic: `EventSource` already does the right
+thing, and adding a second, custom retry mechanism on top would both
+violate that rule in spirit and risk fighting the browser's own
+backoff. A `Map` keyed by `seq` gives O(1) dedupe-and-replace instead of
+an O(n) scan of a growing array on every one of what could be hundreds
+of events in a long repair loop.
+
+**Alternatives rejected:** A `Set<number>` of seen seqs plus a
+separately-appended array -- rejected, functionally equivalent here but
+a `Map<seq, event>` is already its own "have we seen this" check
+(`has`) with the event retrievable from the same structure, one data
+structure instead of two kept in sync.
+
+## D-086 — Mid-run chart images are not rendered inline; only the finished run's `chart_urls` are
+
+**Date:** 2026-10-25
+
+**Decision:** An `exec_result` SSE event's `payload.images` field is a
+list of the agent's own local file-system paths (e.g.
+`runs/artifacts/<id>/attempt1_0.png`) -- confirmed by reading
+`api/runs.py`'s `_execute_run`, which forwards `AgentEvent.payload`
+to subscribers unchanged, never rewriting those paths into the
+`/api/runs/{id}/artifacts/{name}` URLs that `build_summary`'s
+`chart_urls()` helper produces. The live timeline therefore only shows
+*how many* images an attempt produced (`payload.images.length`), never
+an `<img src=...>` built from that raw path. The Result panel's chart
+images are fetched once, after the run finishes, from `GET
+/api/runs/{id}`'s `chart_urls` -- which already are same-origin,
+served URLs.
+
+**Why:** Rule 7 for this task requires images come only from
+same-origin artifact URLs; a raw server file-system path is neither a
+URL nor something a browser could load, and treating it as one (or
+inventing a client-side guess at the eventual artifact URL before the
+run has even finished) would be fragile and arguably a path-handling
+smell. Waiting for the authoritative `chart_urls` the backend already
+computes avoids both problems and matches how the backend itself
+already drew this line (D-075's path-validated artifact endpoint).
+
+**Alternatives rejected:** Guessing the artifact URL client-side from
+the attempt number and an image index while the run is still in
+progress (`/api/runs/{runId}/artifacts/attempt{n}_{i}.png`) --
+rejected; it happens to work (the naming scheme is stable, per
+`ARTIFACT_NAME_RE`) but bakes a backend implementation detail into the
+frontend for no real benefit, since the chart isn't needed until the
+Result panel renders anyway.
+
