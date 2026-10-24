@@ -1,0 +1,41 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+
+# Virtual environments
+.venv/
+venv/
+
+# Env files (keep .env.example)
+.env
+.env.*
+!.env.example
+
+# Project-local data and run artifacts
+data/
+runs/
+
+# Private engineering notes (never committed)
+notes/
+
+# Logs
+*.log
+
+# Node / web build output
+node_modules/
+web/dist/
+
+# Tool caches
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# Editors / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
