@@ -12,19 +12,21 @@
 # What is deliberately NOT in this image:
 #   - .env and every API key / token -- arrive as App Service application settings
 #   - data/, runs/, notes/ -- gitignored, never committed, never baked in
-#   - a built React UI -- Prompt 6 adds a `node` build stage above the one below,
-#     at the marked spot, the same way ZoneWise's Dockerfile builds its frontend
+#   - web/node_modules/ -- installed fresh in the frontend stage below, never
+#     copied from the host (irrelevant anyway: this host never installs it either,
+#     see CLAUDE.md rule 7's host/sandbox-dependency split)
 #
-# Until Prompt 6, `GET /` serves api/app.py's own placeholder page (see docs/api.md).
+# `GET /` serves the built React UI (stage 1's output, copied in below) if present,
+# else api/app.py's own placeholder page (see docs/api.md) -- so this image always
+# serves the real UI, since stage 1 always runs first.
 
-# --- stage 1: the frontend (Prompt 6 adds this) ---------------------------------
-#
-# FROM node:20-slim AS web
-# WORKDIR /build
-# COPY web/package.json web/package-lock.json* ./
-# RUN npm install
-# COPY web/ ./
-# RUN npm run build
+# --- stage 1: the frontend ---------------------------------------------------------
+FROM node:22-slim AS web
+WORKDIR /build
+COPY web/package.json web/package-lock.json ./
+RUN npm ci
+COPY web/ ./
+RUN npm run build
 
 
 # --- stage 2: the server ---------------------------------------------------------
@@ -75,9 +77,9 @@ RUN uv sync --frozen --no-dev
 ARG APP_VERSION=unknown
 ENV APP_VERSION=${APP_VERSION}
 
-# --- stage 1 output (Prompt 6 adds this) -----------------------------------------
-#
-# COPY --from=web /build/dist ./web/dist
+# The built UI, at the exact relative path api/app.py's WEB_DIST_DIR checks
+# (Path("web/dist"), resolved against this stage's WORKDIR /app).
+COPY --from=web /build/dist ./web/dist
 
 # SA_DATA_DIR must exist and be writable by the non-root user -- it has no fallback
 # if it's missing, since every write under it (uploads, traces, artifacts, the

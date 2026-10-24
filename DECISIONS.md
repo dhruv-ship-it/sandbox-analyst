@@ -2355,3 +2355,44 @@ the case SSE reconnection exists to recover from. The real problem was
 a missing signal, not a client that reacts wrongly to the signal it
 has -- so the fix belongs where the signal is missing.
 
+## D-091 — The Docker image's frontend stage uses `node:22-slim` + `npm ci`, verified in CI, not locally
+
+**Date:** 2026-10-25
+
+**Decision:** `Dockerfile`'s new stage 1 (`FROM node:22-slim AS web`)
+copies `web/package.json` + `web/package-lock.json`, runs `npm ci`
+(not `npm install` -- reproducible from the lockfile, and it fails
+outright on any drift between the two files, which is exactly the
+property a CI gate wants), copies the rest of `web/`, and runs `npm
+run build`. Stage 2 copies `/build/dist` from that stage into
+`./web/dist` (i.e. `/app/web/dist`, matching `api/app.py`'s
+`WEB_DIST_DIR = Path("web/dist")` exactly, resolved against stage 2's
+own `WORKDIR /app`). `.github/workflows/ci.yml` gained a `web` job
+(`npm ci`, `typecheck`, `test`, `build`, `actions/setup-node@v4` on
+Node 22) and the existing `image` job's `needs: test` became `needs:
+[test, web]`. Docker itself was not run locally, even though it
+happens to be installed on this machine (Docker Desktop is present),
+because this project's own rule is "don't install Docker, verify the
+build in CI" (CLAUDE.md rule 7, docs/api.md) -- a pre-existing install
+doesn't change that intent, and the task's own instructions
+anticipated exactly this ("Docker is not installed locally, so the
+build is verified in CI").
+
+**Why:** `node:22-slim` inside the Dockerfile is a completely separate
+environment from this development machine's own Node v20.14.0 (D-080)
+-- the image build gets a fresh, current Node with no compatibility
+baggage, so there was no reason to match the dev-machine pin inside
+the container. `npm ci` was verified end-to-end on this machine by
+deleting `web/node_modules/` and reinstalling from the committed
+lockfile alone, confirming `package.json` and `package-lock.json`
+haven't drifted -- the same failure mode `npm ci` exists to catch
+inside the actual Docker build.
+
+**Alternatives rejected:** Matching `node:20-slim` to this machine's
+own pinned Node version -- rejected, there's no reason to import a
+local compatibility constraint into an isolated build environment that
+doesn't have it. Running a local `docker build` to double-check the
+image, since Docker happens to be present -- rejected as contrary to
+this project's explicit host-footprint rule; "it happens to be
+installed" isn't a reason to start depending on it being there.
+
