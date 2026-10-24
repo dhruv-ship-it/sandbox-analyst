@@ -1999,3 +1999,98 @@ repo variable -- rejected, the app name isn't sensitive and a plain
 variable is one fewer thing for the user to mark as a secret
 unnecessarily.
 
+## D-080 — Frontend pinned to Vite 5 / React 18 / TypeScript 5.7, not the newest majors
+
+**Date:** 2026-10-25
+
+**Decision:** `web/package.json` pins `vite@^5.4.21`,
+`@vitejs/plugin-react@^4.7.0`, `react@^18.3.1`, `react-dom@^18.3.1`,
+`typescript@^5.7.3`, `vitest@^2.1.9`, `jsdom@^25.0.1`. `npm create
+vite@latest` (the obvious starting point) scaffolds Vite 8 + TypeScript
+6 today, and `npm install` on that scaffold failed outright on this
+machine's Node v20.14.0 (`npm warn EBADENGINE ... required: { node:
+'^20.19.0 || >=22.12.0' }`, then a hard npm resolver crash). Node itself
+clears this task's own gate (>=18), but the newest tool majors don't
+run on it, so `web/` was rebuilt by hand on the last minor version in
+each major line that still supports Node 18+.
+
+**Why:** A frontend that can't `npm install` on the actual development
+machine is useless regardless of how current its dependency versions
+are; "current and broken" is strictly worse than "a few minor versions
+behind and working." Vite 5 / React 18 / TS 5.7 are all still
+actively-maintained lines, not abandoned ones.
+
+**Known trade-off:** `npm audit` reports 6 vulnerabilities (3 moderate,
+1 high, 2 critical) in `esbuild`/`vitest`'s `tinypool`/`@vitest/mocker`
+transitive deps, all fixed only by upgrading to the Vite 6 / Vitest 4
+line (a breaking change this task didn't take). Every one of them is a
+*dev-server-only* issue (the esbuild CVE is "a malicious website can
+query your local `vite dev` server"; the vitest ones are in the test
+runner's worker-pool/mocking internals) -- none of it ships in
+`vite build`'s output or runs inside the production Docker image,
+which never executes `vite dev` or `vitest`. Accepted as-is rather than
+chasing a breaking upgrade for a risk with no production exposure.
+
+**Alternatives rejected:** Forcing the Node-incompatible latest majors
+through anyway (e.g. by overriding the engine check) -- rejected, that
+papers over a real compatibility problem rather than fixing it, and
+risks subtler runtime breakage than the install-time crash already
+surfaced.
+
+## D-081 — The two extra frontend libraries: `prismjs` (code highlighting) and `diff` (line diff), both consumed as data, never as HTML
+
+**Date:** 2026-10-25
+
+**Decision:** Of the "at most two small libraries" this task's
+dependency budget allows beyond react/react-dom/vite/typescript/vitest,
+the two chosen are `prismjs` (tokenizing Python source for syntax
+highlighting) and `diff` (`diffLines`, for the repair-step code diff).
+Both are used purely as *data* producers -- Prism's tokenizer and
+`diffLines` each return plain arrays of strings/objects, which the UI
+renders as ordinary React children (`<span>{token}</span>`), never by
+building an HTML string and injecting it.
+
+**Why:** Rule 7 for this task is categorical: no
+`dangerouslySetInnerHTML`, model output (which includes the LLM-written
+Python code itself) rendered as plain text only. A conventional
+highlighter that hands back an HTML string (or a React wrapper that
+calls `dangerouslySetInnerHTML` internally, as most do) would violate
+that outright. Using Prism's lower-level tokenize API instead of its
+`highlight()`-to-HTML API keeps syntax coloring while every character
+of the model's own code still only ever reaches the DOM through React's
+normal, auto-escaping text-child rendering -- so even a code string
+engineered to contain literal `<script>` tags can never execute.
+
+**Alternatives rejected:** `react-syntax-highlighter` -- pulls in
+`refractor`/`lowlight` plus per-language grammar bundles, far heavier
+than this project's "minimal dependencies, no UI kit" rule wants for
+one language (Python). `highlight.js` -- its primary API expects to own
+a DOM node (`hljs.highlightElement`), which is a worse fit than
+Prism's string-in/tokens-out `tokenize()` for a React-controlled tree.
+
+## D-082 — No `@testing-library/react`; component tests use a ~20-line custom render helper
+
+**Date:** 2026-10-25
+
+**Decision:** `web/src/testUtils.tsx` exports one helper,
+`renderToContainer`, built directly from `react-dom/client`'s
+`createRoot` and React's own `act`. Component tests render through it
+and assert on `container.textContent` / `container.querySelector(...)`
+rather than through `@testing-library/react`'s `render`/`screen` API.
+
+**Why:** This task's dependency budget is explicit and small (five
+named packages plus at most two "small libraries," already spent on
+`prismjs` and `diff` -- D-081). `@testing-library/react` is exactly the
+kind of well-justified-but-still-a-dependency addition that budget
+exists to push back on, and a full DOM-query/event-simulation library
+isn't needed for this project's test list (render fixture data, check
+rendered text, check a tag didn't parse as an element) -- `jsdom` +
+`vitest` (both already explicitly sanctioned for component tests by
+this task's own text) plus ~20 lines of `createRoot`/`act` cover it.
+
+**Alternatives rejected:** Treating `@testing-library/react` as
+"basically part of vitest" and adding it anyway -- rejected, it's a
+separate, real package with its own version lifecycle and the budget
+language doesn't carve out an exception for test-only libraries beyond
+the jsdom/vitest combination the task itself names.
+
