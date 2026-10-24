@@ -15,7 +15,8 @@ from pathlib import Path
 from sandbox_analyst.agent import TraceWriter, run_agent
 from sandbox_analyst.agent.events import AgentEvent
 from sandbox_analyst.bench.dabench import Question, load_labels, load_questions
-from sandbox_analyst.bench.split import DEFAULT_QUESTIONS_PATH, load_split
+from sandbox_analyst.bench.harness import DEFAULT_TOKEN_BUDGET, HeldOutRunRequired, run_eval
+from sandbox_analyst.bench.split import DEFAULT_QUESTIONS_PATH, SplitLockedError, load_split
 from sandbox_analyst.config import Settings
 from sandbox_analyst.llm import LLMConfigError, make_llm
 from sandbox_analyst.llm.usage import DEFAULT_USAGE_LOG_PATH
@@ -250,6 +251,41 @@ def cmd_dabench_smoke(n: int, seed: int) -> int:
     return 0
 
 
+def cmd_eval(
+    split: str,
+    run_name: str,
+    concurrency: int,
+    limit: int | None,
+    token_budget: int,
+    final_held_out_run: bool,
+) -> int:
+    settings = Settings()
+    try:
+        outcome = run_eval(
+            split=split,
+            run_name=run_name,
+            settings=settings,
+            concurrency=concurrency,
+            limit=limit,
+            token_budget=token_budget,
+            final_held_out_run=final_held_out_run,
+        )
+    except (HeldOutRunRequired, SplitLockedError) as exc:
+        print(f"refused: {exc}", file=sys.stderr)  # noqa: T201
+        return 2
+
+    print(  # noqa: T201
+        f"run {outcome.run_name}: {outcome.n_done}/{outcome.total} done "
+        f"({outcome.n_answered} answered, {outcome.n_infra_errors} infra_error, "
+        f"{outcome.n_remaining} remaining)"
+    )
+    if outcome.stopped_clean:
+        print(f"stopped cleanly: {outcome.stop_reason}", file=sys.stderr)  # noqa: T201
+        print(f"resume with: {outcome.resume_command}", file=sys.stderr)  # noqa: T201
+        return 1
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="sa", description="Sandbox Analyst CLI")
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -267,6 +303,20 @@ def build_parser() -> argparse.ArgumentParser:
         "--seed", type=int, default=2026, help="seed for deterministic question selection"
     )
 
+    eval_parser = subparsers.add_parser(
+        "eval", help="run the resumable evaluation harness over a DABench split"
+    )
+    eval_parser.add_argument("--split", choices=["dev", "test"], default="dev")
+    eval_parser.add_argument("--run-name", required=True)
+    eval_parser.add_argument("--concurrency", type=int, default=6)
+    eval_parser.add_argument("--limit", type=int, default=None)
+    eval_parser.add_argument("--token-budget", type=int, default=DEFAULT_TOKEN_BUDGET)
+    eval_parser.add_argument(
+        "--final-held-out-run",
+        action="store_true",
+        help="required (alongside a clean, frozen-*-tagged tree) to load --split test",
+    )
+
     return parser
 
 
@@ -277,6 +327,15 @@ def main(argv: list[str] | None = None) -> int:
         return cmd_ask(args.csv_path, args.question)
     if args.command == "dabench-smoke":
         return cmd_dabench_smoke(args.n, args.seed)
+    if args.command == "eval":
+        return cmd_eval(
+            args.split,
+            args.run_name,
+            args.concurrency,
+            args.limit,
+            args.token_budget,
+            args.final_held_out_run,
+        )
     parser.error(f"unknown command: {args.command}")
     return 2
 

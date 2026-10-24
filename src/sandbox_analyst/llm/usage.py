@@ -1,15 +1,19 @@
 """The LLM usage log: an append-only JSON-lines record of every call made.
 
 Mirrors sandbox/ledger.py's pattern -- pure host-side bookkeeping, no
-provider dependency, fully testable with a temp file.
+provider dependency, fully testable with a temp file. The append is
+lock-protected (D-061) since the evaluation harness's thread pool
+shares one LLM client, and therefore one file, across every thread.
 """
 
 import json
+import threading
 import time
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
 DEFAULT_USAGE_LOG_PATH = Path("runs/llm_usage.jsonl")
+_write_lock = threading.Lock()
 
 
 @dataclass(frozen=True)
@@ -51,5 +55,5 @@ def make_entry(
 
 def append_usage(entry: UsageEntry, path: Path = DEFAULT_USAGE_LOG_PATH) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("a", encoding="utf-8") as f:
+    with _write_lock, path.open("a", encoding="utf-8") as f:
         f.write(json.dumps(asdict(entry)) + "\n")

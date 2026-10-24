@@ -1329,3 +1329,116 @@ isn't evidence of a wrong one. Tuning the shape classifier against
 TEST label content to raise the dev-measured shape coverage — never
 done; the census is DEV-only by construction and the all-labels check
 reports only a count.
+
+## D-058 — `results.jsonl` is append-only; infra errors are excluded and re-queued, never scored as wrong
+
+**Date:** 2026-10-24
+
+**Decision:** `bench/harness.py`'s `ResultsWriter` only ever appends to
+`results.jsonl`, never rewrites a line in place. `ResultsWriter.
+load_latest()` reads the whole file back and keeps the LAST row per
+question id, so a re-queued retry's new line supersedes an earlier
+`infra_error` line for the same id without needing to edit the file.
+`done_ids()` returns every id whose latest row is NOT `infra_error` --
+those, and only those, are skipped on resume. A question's recorded
+`AgentResult.status` of `llm_error` or `tool_failure` is rewritten to
+`status="infra_error"` in `QuestionResult` (keeping the original cause
+in `infra_cause`), and Task 4's metrics must treat `infra_error` as its
+own bucket, never as a wrong answer.
+
+**Why:** Append-only logging is the same event-sourcing pattern already
+used for traces and the usage/ledger logs (D-043) -- it's trivially
+safe to resume from (just read what's there) and trivially safe to
+write from multiple threads (one lock around one `open(...).write()`,
+no read-modify-write race). Treating infra failures as a distinct,
+excluded, always-retried category matters because a flaky provider
+call or a transient sandbox hiccup says nothing about whether the
+*model* got the right answer -- counting it as wrong would make the
+accuracy number measure infrastructure reliability on a given day
+instead of the thing it's supposed to measure.
+
+**Alternatives rejected:** Rewriting/truncating `results.jsonl` in
+place on resume (e.g. removing infra_error lines before re-running) --
+rejected, turns a simple append into a read-entire-file-then-rewrite
+operation that's far more exposed to corruption from a crash or a
+concurrent writer mid-rewrite. Scoring `infra_error` questions as wrong
+(0 credit) in accuracy metrics -- rejected for the reason above;
+excluded and reported separately instead (D-013/D-014 already
+established that this project treats transient infrastructure failure
+as a different axis from model correctness).
+
+## D-059 — The harness's three clean-stop conditions, and why "provider daily limit" isn't a fourth check
+
+**Date:** 2026-10-24
+
+**Decision:** `run_eval` stops submitting new work (lets in-flight
+questions finish, then exits) on exactly three conditions, checked
+after every completed question: (1) cumulative prompt+completion
+tokens across the run `>= --token-budget`; (2) the sandbox ledger's
+running total (`sandbox.ledger.ledger_total_usd`) `>=
+settings.sa_sandbox_budget_usd`; (3) 3 consecutive `infra_error`
+results, in completion order. A stopped run's `HarnessOutcome` carries
+the exact resume command (same split/run-name/concurrency/token-budget/
+limit) and the CLI exits non-zero. No separate "provider daily limit"
+check exists.
+
+**Why:** A hard provider daily cap and a transient rate-limit storm
+both surface through the exact same path from here -- the LLM client's
+own retry policy (D-037) already exhausts its 6 attempts and raises
+`RateLimitExhausted`, which `run_agent` reports as `llm_error`, which
+the harness reports as `infra_error`. From the harness's vantage point
+there is no way to distinguish "this 429 will clear in a minute" from
+"this account is out of quota for the day" -- both look like a
+sustained run of 429s, and the consecutive-infra-error check already
+stops the run after 3 of them either way, which is the only
+*actionable* difference a stop condition can make (continuing to burn
+the token/request budget against a wall that won't move before the
+run ends).
+
+**Alternatives rejected:** Trying to detect a provider's specific
+"daily quota exceeded" error text or status code and treating it as a
+fourth, distinct stop condition — rejected; NVIDIA's free tier is
+documented as having no daily token cap (D-004), so there's no known
+real error shape to design this against yet, and a guessed string match
+would be exactly the kind of brittle, unverified check this project's
+rules (CLAUDE.md: stop cleanly on a real failure, don't guess at ones
+that haven't been observed) argue against.
+
+## D-060 — Concurrency 6, one shared LLM client, and the thread-safety that requires
+
+**Date:** 2026-10-24
+
+**Decision:** The harness constructs exactly one `LLMClient` and passes
+it to every worker thread (default concurrency 6); each worker still
+gets its own, independent sandbox (`sandbox_factory(question)`, a
+fresh real Modal sandbox per question, consistent with D-006/D-047).
+Making this safe required three small changes: `RateLimiter.wait()`
+now holds a lock across its whole check-sleep-record sequence (so the
+`60/rpm` spacing guarantee holds globally across threads, not just
+against whichever thread happened to read `_last_start` first);
+`sandbox/ledger.append_entry` and `llm/usage.append_usage` now
+lock their file write (several real `ModalSandbox`/`OpenAICompatClient`
+instances, one per in-flight question, append to the same shared
+ledger/usage files); and `bench/harness.ResultsWriter` has its own
+lock around `results.jsonl`'s append. `check_budget`'s read-then-decide
+is deliberately left as a soft, unlocked check.
+
+**Why:** Before this task, every one of these shared files/limiters
+only ever had a single caller (the CLI's `sa ask`/`dabench-smoke`, one
+question at a time) -- concurrency is a genuinely new requirement this
+task introduces, not a pre-existing gap. A single shared LLM client
+(rather than one per thread) is what makes "one shared rate limiter"
+true by construction instead of by convention. Locking only the
+write/append (not the read-then-decide budget check) matches D-007's
+own framing: the budget is already a lower-bound estimate with a
+margin, so a race window of at most `concurrency` in-flight attempts'
+worth of overshoot is immaterial next to the $0.20 margin, while file
+corruption from an interleaved write is not acceptable at any size.
+
+**Alternatives rejected:** One `LLMClient` per worker thread, each with
+its own `RateLimiter` -- rejected, it would make "shared rate limiter"
+false (each thread's limiter would independently allow up to
+`concurrency * rpm` requests/minute in aggregate, defeating the whole
+point of client-side pacing). Making `check_budget` itself atomic
+(e.g. a file lock spanning read-then-decide-then-append) -- rejected
+as unnecessary complexity given the budget's own built-in margin.

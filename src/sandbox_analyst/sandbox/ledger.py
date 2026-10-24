@@ -5,9 +5,17 @@ with a temp file. The estimate only counts the CPU/memory *reservation*
 held for `alive_s`; bursting above the reservation is billed by Modal
 too but not counted here, so `est_usd` is always a lower bound on actual
 spend (see DECISIONS.md D-007).
+
+The evaluation harness (Task 3) runs several independent `ModalSandbox`
+instances concurrently, each appending to this same file, so the append
+itself is lock-protected (D-061) to keep lines from interleaving --
+`check_budget`'s own read-then-decide is still a soft, unlocked check
+(a tiny race window is an acceptable trade against the $0.80 budget's
+margin, see D-007), but the write that could corrupt the file is not.
 """
 
 import json
+import threading
 import time
 from dataclasses import asdict, dataclass
 from pathlib import Path
@@ -15,6 +23,7 @@ from pathlib import Path
 from .base import SandboxUnavailable
 
 DEFAULT_LEDGER_PATH = Path("runs/sandbox_ledger.jsonl")
+_write_lock = threading.Lock()
 
 
 @dataclass(frozen=True)
@@ -55,7 +64,7 @@ def make_entry(
 
 def append_entry(ledger_path: Path, entry: LedgerEntry) -> None:
     ledger_path.parent.mkdir(parents=True, exist_ok=True)
-    with ledger_path.open("a", encoding="utf-8") as f:
+    with _write_lock, ledger_path.open("a", encoding="utf-8") as f:
         f.write(json.dumps(asdict(entry)) + "\n")
 
 
