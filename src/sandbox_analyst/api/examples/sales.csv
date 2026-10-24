@@ -1,0 +1,181 @@
+date,region,product,units,unit_price
+2026-01-01,North,Widget A,33,476.71
+2026-01-01,South,Widget B,40,392.77
+2026-01-01,East,Thingamajig,50,376.76
+2026-01-01,West,Thingamajig,1,59.81
+2026-01-02,North,Widget A,44,160.55
+2026-01-02,South,Gizmo Z,23,499.83
+2026-01-02,East,Thingamajig,47,280.94
+2026-01-02,West,Gadget X,10,353.47
+2026-01-03,North,Thingamajig,46,233.23
+2026-01-03,South,Widget A,38,434.28
+2026-01-03,East,Gizmo Z,49,438.34
+2026-01-03,West,Gizmo Z,17,284.18
+2026-01-04,North,Gizmo Z,2,384.08
+2026-01-04,South,Widget A,34,55.78
+2026-01-04,East,Thingamajig,10,118.32
+2026-01-04,West,Widget A,30,358.69
+2026-01-05,North,Thingamajig,26,157.28
+2026-01-05,South,Thingamajig,26,150.72
+2026-01-05,East,Gadget X,,441.61
+2026-01-05,West,Gizmo Z,32,103.92
+2026-01-06,North,Gizmo Z,50,404.94
+2026-01-06,South,Thingamajig,3,161.75
+2026-01-06,East,Widget A,46,260.01
+2026-01-06,West,Gizmo Z,12,422.01
+2026-01-07,North,Gizmo Z,42,251.72
+2026-01-07,South,Widget A,27,458.66
+2026-01-07,East,Widget A,,466.43
+2026-01-07,West,Widget A,13,312.43
+2026-01-08,North,Thingamajig,43,181.84
+2026-01-08,South,Widget A,38,463.47
+2026-01-08,East,Gizmo Z,9,239.13
+2026-01-08,West,Widget B,45,46.79
+2026-01-09,North,Widget B,38,208.96
+2026-01-09,South,Widget B,13,479.62
+2026-01-09,East,Gizmo Z,4,324.90
+2026-01-09,West,Widget A,,342.98
+2026-01-10,North,Gizmo Z,8,235.96
+2026-01-10,South,Thingamajig,10,107.46
+2026-01-10,East,Thingamajig,39,356.89
+2026-01-10,West,Thingamajig,13,90.82
+2026-01-11,North,Thingamajig,4,378.58
+2026-01-11,South,Widget B,44,68.92
+2026-01-11,East,Thingamajig,34,73.17
+2026-01-11,West,Widget B,28,434.68
+2026-01-12,North,Gizmo Z,23,234.64
+2026-01-12,South,Gizmo Z,12,243.62
+2026-01-12,East,Widget A,34,409.00
+2026-01-12,West,Widget B,6,324.61
+2026-01-13,North,Gizmo Z,43,18.46
+2026-01-13,South,Widget B,44,271.50
+2026-01-13,East,Widget A,18,286.18
+2026-01-13,West,Widget B,37,280.09
+2026-01-14,North,Widget A,7,89.78
+2026-01-14,South,Widget A,47,324.74
+2026-01-14,East,Widget A,18,36.64
+2026-01-14,West,Gadget X,17,208.76
+2026-01-15,North,Gadget X,1,121.44
+2026-01-15,South,Gadget X,44,494.10
+2026-01-15,East,Gadget X,30,329.08
+2026-01-15,West,Thingamajig,,305.85
+2026-01-16,North,Thingamajig,44,344.80
+2026-01-16,South,Thingamajig,17,473.80
+2026-01-16,East,Gadget X,46,16.71
+2026-01-16,West,Gadget X,50,65.55
+2026-01-17,North,Gizmo Z,2,174.53
+2026-01-17,South,Thingamajig,8,65.73
+2026-01-17,East,Widget A,23,486.79
+2026-01-17,West,Gadget X,,181.21
+2026-01-18,North,Gizmo Z,50,113.68
+2026-01-18,South,Widget B,2,467.66
+2026-01-18,East,Thingamajig,17,117.99
+2026-01-18,West,Widget A,31,479.45
+2026-01-19,North,Widget B,38,93.75
+2026-01-19,South,Widget A,33,173.65
+2026-01-19,East,Thingamajig,21,421.12
+2026-01-19,West,Widget B,15,431.74
+2026-01-20,North,Gizmo Z,24,120.09
+2026-01-20,South,Gadget X,13,232.34
+2026-01-20,East,Gizmo Z,31,338.33
+2026-01-20,West,Gadget X,41,245.00
+2026-01-21,North,Widget A,34,398.71
+2026-01-21,South,Widget B,24,136.18
+2026-01-21,East,Widget A,2,425.66
+2026-01-21,West,Thingamajig,3,193.39
+2026-01-22,North,Thingamajig,43,256.84
+2026-01-22,South,Widget A,25,134.41
+2026-01-22,East,Widget A,43,85.29
+2026-01-22,West,Gadget X,19,486.51
+2026-01-23,North,Widget B,41,
+2026-01-23,South,Thingamajig,28,387.32
+2026-01-23,East,Thingamajig,34,
+2026-01-23,West,Gadget X,11,
+2026-01-24,North,Widget A,46,5.99
+2026-01-24,South,Gadget X,20,81.34
+2026-01-24,East,Thingamajig,7,244.86
+2026-01-24,West,Widget A,40,63.19
+2026-01-25,North,Gizmo Z,8,127.28
+2026-01-25,South,Gadget X,30,175.83
+2026-01-25,East,Widget A,6,390.09
+2026-01-25,West,Gadget X,15,219.14
+2026-01-26,North,Thingamajig,47,249.13
+2026-01-26,South,Gadget X,30,346.13
+2026-01-26,East,Gadget X,23,402.60
+2026-01-26,West,Gizmo Z,29,330.14
+2026-01-27,North,Widget B,22,163.42
+2026-01-27,South,Gizmo Z,35,120.97
+2026-01-27,East,Widget B,8,289.32
+2026-01-27,West,Gizmo Z,36,338.69
+2026-01-28,North,Gadget X,50,454.73
+2026-01-28,South,Thingamajig,28,168.57
+2026-01-28,East,Gizmo Z,1,352.34
+2026-01-28,West,Widget B,42,417.30
+2026-01-29,North,Gizmo Z,31,23.56
+2026-01-29,South,Widget B,43,137.98
+2026-01-29,East,Widget A,30,313.30
+2026-01-29,West,Gadget X,45,385.62
+2026-01-30,North,Widget A,15,107.15
+2026-01-30,South,Widget B,6,357.36
+2026-01-30,East,Thingamajig,7,
+2026-01-30,West,Gizmo Z,,259.15
+2026-01-31,North,Widget B,31,173.93
+2026-01-31,South,Gadget X,31,442.21
+2026-01-31,East,Gadget X,,15.78
+2026-01-31,West,Gadget X,49,186.93
+2026-02-01,North,Thingamajig,26,292.96
+2026-02-01,South,Gizmo Z,47,332.27
+2026-02-01,East,Thingamajig,20,310.12
+2026-02-01,West,Thingamajig,39,162.38
+2026-02-02,North,Gadget X,5,432.43
+2026-02-02,South,Widget B,34,194.50
+2026-02-02,East,Widget A,14,
+2026-02-02,West,Widget B,33,67.61
+2026-02-03,North,Widget B,18,359.61
+2026-02-03,South,Widget B,21,327.18
+2026-02-03,East,Thingamajig,35,305.35
+2026-02-03,West,Widget B,9,400.58
+2026-02-04,North,Thingamajig,43,143.78
+2026-02-04,South,Gadget X,12,481.74
+2026-02-04,East,Gadget X,11,31.55
+2026-02-04,West,Widget B,27,247.42
+2026-02-05,North,Thingamajig,20,185.26
+2026-02-05,South,Thingamajig,44,81.73
+2026-02-05,East,Gadget X,33,
+2026-02-05,West,Widget A,23,353.80
+2026-02-06,North,Gadget X,2,99.71
+2026-02-06,South,Widget A,28,421.70
+2026-02-06,East,Widget B,32,83.46
+2026-02-06,West,Gizmo Z,30,354.00
+2026-02-07,North,Gadget X,29,281.71
+2026-02-07,South,Gizmo Z,14,62.35
+2026-02-07,East,Widget A,44,83.24
+2026-02-07,West,Widget B,28,474.26
+2026-02-08,North,Gizmo Z,,325.86
+2026-02-08,South,Gadget X,24,240.90
+2026-02-08,East,Gizmo Z,23,73.28
+2026-02-08,West,Widget B,23,306.23
+2026-02-09,North,Thingamajig,,282.30
+2026-02-09,South,Gadget X,6,176.24
+2026-02-09,East,Thingamajig,7,151.90
+2026-02-09,West,Widget A,5,228.96
+2026-02-10,North,Widget A,42,479.92
+2026-02-10,South,Thingamajig,2,162.61
+2026-02-10,East,Widget A,6,430.94
+2026-02-10,West,Widget A,48,377.53
+2026-02-11,North,Thingamajig,22,156.98
+2026-02-11,South,Gizmo Z,46,346.78
+2026-02-11,East,Gizmo Z,21,247.03
+2026-02-11,West,Thingamajig,13,296.24
+2026-02-12,North,Thingamajig,34,
+2026-02-12,South,Widget B,3,393.38
+2026-02-12,East,Gadget X,34,384.66
+2026-02-12,West,Thingamajig,,262.40
+2026-02-13,North,Thingamajig,24,295.35
+2026-02-13,South,Thingamajig,26,401.86
+2026-02-13,East,Gizmo Z,1,30.30
+2026-02-13,West,Widget B,24,87.98
+2026-02-14,North,Widget A,41,283.36
+2026-02-14,South,Gizmo Z,3,441.93
+2026-02-14,East,Gizmo Z,33,22.16
+2026-02-14,West,Widget B,31,
