@@ -1488,3 +1488,39 @@ ratio -- rejected, it would silently treat a 1-sub-answer question and
 an 8-sub-answer question as equally "one data point," which UASQ's own
 definition (pooled correct/total across every sub-answer) explicitly
 does not do.
+
+## D-063 — `dev-v1-r3` deferred mid-run; `docs/results-dev.md` reports 2 of 3 planned runs
+
+**Date:** 2026-10-24
+
+**Decision:** `dev-v1-r1` (74/74 done, 72 answered, 0 infra_error)
+took ~21 minutes wall-clock at concurrency 6. `dev-v1-r2` (74/74 done,
+71 answered, 0 infra_error) took ~110 minutes -- NIM was visibly
+slower during that window (frequent `APITimeoutError`s hitting the
+142s timeout before succeeding on retry, confirmed in
+`runs/llm_usage.jsonl`). With `dev-v1-r3` already at only 3/74 after
+starting and its remaining time uncertain, the project lead chose to
+kill it mid-run rather than let a third, open-ended-length run
+continue unattended. `docs/results-dev.md` is built from
+`dev-v1-r1`/`dev-v1-r2` only (`uv run sa report dev-v1-r1 dev-v1-r2`)
+and says so explicitly at the top, with the exact resume command for
+`dev-v1-r3` (plain `uv run sa eval --split dev --run-name dev-v1-r3` --
+the harness's own resume logic, D-058, skips the 3 already-recorded
+ids automatically, no special flag needed).
+
+**Why:** This is a direct, human, in-the-moment call on real
+infrastructure's actual behavior that session, not a design decision
+baked into the code -- the harness itself has no "provider is being
+slow today, abort" condition (and D-059 already explains why it
+shouldn't guess at one). Documenting the real timing numbers and the
+exact resume command is what makes "2 of 3 runs, deferred, here's how
+to finish it" an honest, reproducible state rather than a silently
+incomplete result.
+
+**Alternatives rejected:** Letting `dev-v1-r3` run to completion
+regardless of elapsed time -- rejected by the project lead's explicit
+instruction; an open-ended wait against a third-party API's variable
+load isn't a cost this session chose to pay. Discarding `dev-v1-r3`'s
+partial 3 recorded questions -- rejected, they're valid, already-paid-
+for results that the harness's own resume logic can build on for free
+later; no reason to throw them away.
