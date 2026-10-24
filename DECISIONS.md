@@ -771,3 +771,31 @@ never needed.
 **Alternatives rejected:** The system-message fallback — not built,
 since the native parameter demonstrably works; keeping unused fallback
 code around would be dead code with no test coverage backing it.
+
+## D-040 — Pinned DABench revision; verification stops on mismatch, never adjusts expectations
+
+**Date:** 2026-10-24
+
+**Decision:** Pinned `infiagent/DABench` (dataset repo) to revision
+`b455d578e30fee513abd79936cbdf7a6de026cb5`, resolved live via
+`HfApi().dataset_info(...).sha` rather than assumed. The download
+script (`bench/download.py`) hardcodes the dataset's known-good shape
+(257 questions, 257 labels with matching ids, every referenced CSV
+present, exactly 52 distinct CSVs referenced) as constants and raises
+`VerificationError` with the actual numbers on any mismatch — it never
+changes the expected constants to match what it finds.
+
+**Why:** A pinned revision means every future run downloads the exact
+same dataset, regardless of upstream changes; this project already
+learned the cost of an unpinned dependency moving out from under it
+(D-003's model retirement). Treating the expected counts as fixed
+constants rather than "whatever the current download says" is what
+makes verification meaningful — a check that silently adopts the data
+it's checking can never fail.
+
+**Alternatives rejected:** Downloading `revision="main"` (always
+latest) — rejected, defeats the purpose of a benchmark whose numbers
+should be reproducible against a fixed dataset version. Letting
+verification auto-update its expected counts on mismatch — rejected
+outright, that's not verification, that's just recording whatever
+showed up.
