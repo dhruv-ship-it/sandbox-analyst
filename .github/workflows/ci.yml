@@ -1,0 +1,41 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Fail if forbidden files are tracked
+        run: |
+          set -e
+          forbidden=$(git ls-files \
+            | grep -E '^(data/|runs/|notes/)|(^|/)\.env(\.|$)|(^|/)da-dev-' \
+            | grep -v -E '^\.env\.example$' \
+            || true)
+          if [ -n "$forbidden" ]; then
+            echo "Forbidden files are tracked in git:"
+            echo "$forbidden"
+            exit 1
+          fi
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: uv sync --frozen
+
+      - name: Lint
+        run: uv run ruff check
+
+      - name: Check formatting
+        run: uv run ruff format --check
+
+      - name: Run tests
+        run: uv run pytest

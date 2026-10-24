@@ -636,3 +636,43 @@ matters (D-009).
 scanning strings for `__`, or flagging any two-string-literal call) —
 rejected after confirming they would misfire on ordinary benign code
 (docstrings, `re.sub` with two string literals).
+
+## D-034 — CI's forbidden-files check is a `git ls-files` + `grep` gate
+
+**Date:** 2026-10-24
+
+**Decision:** `.github/workflows/ci.yml` fails the build if
+`git ls-files` lists anything under `data/`, `runs/`, or `notes/`, any
+`.env*` file other than `.env.example`, or any file named `da-dev-*`
+anywhere in the tree — checked with one `grep` pass over
+`git ls-files`, not `.gitignore` itself.
+
+**Why:** `.gitignore` only stops *new* untracked files from being
+added by accident; it does nothing once a file has been force-added
+(`git add -f`) or was committed before a gitignore rule existed. CI
+checking what's *actually tracked* is the only check that still catches
+that case. `git ls-files` is also exactly what a reviewer or `git clone`
+sees, so it's the right thing to assert against.
+
+**Alternatives rejected:** Relying on `.gitignore` alone — rejected, it
+provides no protection against `git add -f` or pre-existing commits.
+
+## D-035 — CI uses `astral-sh/setup-uv`, runs on every push and PR
+
+**Date:** 2026-10-24
+
+**Decision:** CI uses the `astral-sh/setup-uv` action (official uv
+GitHub Action) rather than `actions/setup-python` + manual `pip install
+uv`, and triggers on both `push` and `pull_request` with no branch
+filter.
+
+**Why:** `astral-sh/setup-uv` installs uv and a matching Python version
+in one step, matching how the project is run locally (`uv sync`, `uv
+run ...`) with no separate tool to keep in sync. Running on every push
+(not just PRs) catches breakage on `main` itself, not only on branches
+being merged in — relevant since this repo currently only has a
+`main` branch.
+
+**Alternatives rejected:** PR-only triggers — rejected, would miss
+direct pushes to `main` during solo development, where there's no PR
+to gate.
