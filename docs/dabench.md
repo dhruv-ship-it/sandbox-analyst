@@ -91,6 +91,25 @@ freely. `load_split("test")` raises `SplitLockedError` unless the git
 working tree is clean **and** `HEAD` is tagged `frozen-*` -- see
 CLAUDE.md's test-set-discipline rule, added once this split existed.
 
+## Dataset profiler (dev-only measurement)
+
+`src/sandbox_analyst/agent/profile.py` parses a CSV with pandas on the
+host (parsing is not executing code -- D-042) and renders a compact,
+length-capped, delimited preview (`to_prompt_text`); the full file
+never reaches the LLM. Run once over all 11 **dev** CSVs only
+(`uv run python -m sandbox_analyst.agent.profile`):
+
+| Metric | Value |
+|---|---|
+| CSVs profiled | 11 (dev only) |
+| Mean prompt size | 2412 chars (~603 est. tokens, chars/4) |
+| Max prompt size | 3652 chars (~913 est. tokens) |
+| Max columns (any dev CSV) | 19 |
+
+No dev CSV hit the 4,000-char hard cap, so the "...and N more columns"
+summarization path isn't exercised by real dev data -- it's covered
+separately by a synthetic wide-CSV unit test.
+
 ## Licensing
 
 Treated as **CC BY-NC 4.0** per the original InfiAgent-DABench paper

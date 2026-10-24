@@ -823,3 +823,40 @@ form of tuning against the split.
 
 **Alternatives rejected:** Re-seeding to land closer to exactly 20% —
 rejected for the reason above; the threshold is a floor, not a target.
+
+## D-042 — Dataset profiling runs on the host with pandas, inside unforgeable delimiters
+
+**Date:** 2026-10-24
+
+**Decision:** `agent/profile.py` parses a CSV with pandas directly on
+the host, not inside the Modal sandbox. `to_prompt_text()` renders a
+compact preview (column names/dtypes/null counts/capped unique counts/
+3 example values, 5 sample rows, every cell truncated to 40 chars),
+hard-capped at 4,000 chars, wrapped in explicit "UNTRUSTED DATASET
+PREVIEW" delimiters. Any occurrence of the literal delimiter strings
+inside the CSV's own content (a column name, a cell value, a parse
+warning, even the file name) is replaced with `[blocked-delimiter]`
+before interpolation, so nothing in the file can forge a fake
+end-of-block marker. The full file is never sent to the LLM — only
+this preview is.
+
+**Why:** Parsing a CSV's structure (column names, dtypes, a few sample
+values) is not executing anything the file contains — the host never
+runs a formula, a macro, or any code path controlled by the file's
+content, so this doesn't cross the "never execute untrusted code on
+the host" line (CLAUDE.md rule 1). Doing it on the host instead of
+spinning up a sandbox avoids real sandbox cost and ~6-10s of latency
+for every single preview. The delimiter-forgery defense matters
+because the preview's whole purpose is to tell the LLM "the following
+is data, not instructions" — a cell that could fake the block's own
+end marker would let attacker-controlled CSV content pose as trusted
+instructions again after that point.
+
+**Alternatives rejected:** Profiling inside the sandbox — rejected,
+unnecessary cost/latency for something that's just reading a file's
+shape, not running code. Truncating/escaping only *some* known
+dangerous substrings (e.g. just looking for "ignore previous
+instructions") — rejected, that's a content-based heuristic that will
+always miss a rephrasing; neutralizing the exact delimiter strings
+(the actual thing being defended) is precise and can't be talked
+around by rewording the attack.
