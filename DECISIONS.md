@@ -368,3 +368,75 @@ LLM layer is built — rejected, `.env.example` already documents these
 keys, and leaving them as untyped `extra="ignore"` values would mean
 they could be loaded as plain strings by future code that doesn't go
 through `Settings`.
+
+## D-020 — Sandbox data types are plain frozen dataclasses, not pydantic
+
+**Date:** 2026-10-24
+
+**Decision:** `ExecError` and `ExecResult` are `@dataclass(frozen=True)`,
+not pydantic models.
+
+**Why:** These are internal, host-constructed evidence objects built
+from already-trusted data (sandbox output after capping) — they are
+never parsed from untrusted external input, so pydantic's validation
+machinery adds nothing. `Settings` uses pydantic because it validates
+and coerces values arriving from the environment.
+
+**Alternatives rejected:** pydantic `BaseModel` for consistency with
+`Settings` — rejected as unnecessary overhead for a value that's only
+ever constructed in-process.
+
+## D-021 — One shared `cap_exec_result` function, not per-field helpers
+
+**Date:** 2026-10-24
+
+**Decision:** All four output caps (stdout, stderr, traceback, images)
+are applied by a single public function, `cap_exec_result(result) ->
+ExecResult`, in `sandbox/base.py`, with private per-field helpers
+underneath. The overall `truncated` flag is `True` if *any* of the four
+caps actually fired (the task prompt only explicitly mentions
+`truncated=True` for the stdout/stderr and image caps; traceback
+truncation is folded into the same flag for consistency, since the flag
+exists to tell the agent "some evidence here is incomplete").
+
+**Why:** Every real sandbox backend needs to apply the exact same caps
+before handing output to the agent; a single function makes that
+contract impossible to apply inconsistently between backends.
+
+**Alternatives rejected:** Separate `cap_stdout`/`cap_stderr`/etc.
+functions called individually by each backend — rejected, that's how
+you get one backend forgetting to cap something.
+
+## D-022 — Upload validation raises `ValueError`, not `SandboxError`
+
+**Date:** 2026-10-24
+
+**Decision:** `validate_upload_name` / `validate_upload_size` raise
+plain `ValueError` on bad input, rather than a `SandboxError` subtype.
+
+**Why:** These catch programmer/caller mistakes (a bad file name or an
+oversized upload chosen by calling code), not sandbox-infrastructure
+failures. `SandboxError` and its subtypes are reserved for failures of
+the sandbox itself (can't create it, it crashed, budget exhausted).
+
+**Alternatives rejected:** A dedicated `UploadError(SandboxError)` —
+possible later if callers need to catch upload problems alongside other
+sandbox errors, but not justified yet by any actual caller.
+
+## D-023 — `make_sandbox("fake")` returns an empty-script FakeSandbox
+
+**Date:** 2026-10-24
+
+**Decision:** The factory's "fake" branch returns a `FakeSandbox` with
+no scripted results queued, built only from `settings.max_upload_mb`.
+Tests that need specific scripted behavior construct `FakeSandbox`
+directly instead of going through the factory.
+
+**Why:** `make_sandbox(settings)` only has `Settings` to work with, which
+has no concept of "what should this run return" — that's necessarily
+supplied by the calling test or code, not by configuration.
+
+**Alternatives rejected:** Making `make_sandbox` raise for "fake" and
+requiring direct construction always — rejected, the factory should
+still work end-to-end for wiring/smoke-test code that doesn't care about
+specific results.
