@@ -2943,3 +2943,48 @@ generous ceiling anyway as a real hang-detection backstop, since "the
 run terminates within budget" is one of this category's own stated
 HANDLED criteria and dropping the check entirely would mean nothing
 tests it.
+
+## D-106 — v2-vs-v1 dev comparison reported as two framings, not one number
+
+**Date:** 2026-10-26
+
+**Decision:** `docs/results-dev.md`'s v2 section reports the dev
+regression check as two separate paired comparisons rather than a
+single "v2 vs v1" number: Framing 1 compares v2 against v1 exactly as
+originally reported (`docs/results-dev.md`'s own existing 0.777,
+reproduced from the unchanged `dev-v1-r1`/`dev-v1-r2` data using a
+`RawAnswer` stand-in that bypasses `AnswerItem`'s current validator);
+Framing 2 compares v2 against v1's *same* unchanged data regraded with
+today's code (0.851), isolating whatever the new prompt wording
+contributed on its own.
+
+**Why:** Building the comparison surfaced a real methodological trap:
+`bench.grader.grade_question` reconstructs each stored answer through
+`agent.answer.AnswerItem`, and D-095/D-097's trailing-bracket-stripping
+fix (deliberately version-independent, so it also protects the v1
+prompt path and the held-out test run) therefore *also* fires when the
+grader re-parses v1's old, unchanged `results.jsonl` -- regrading v1
+today scores 0.851, not the 0.777 that was actually measured and
+reported at the time, with zero re-running. Reporting only "v2 (0.878)
+vs. v1 regraded today (0.851), diff +0.027, CI straddles zero" would
+hide the real, significant improvement over what was actually shipped.
+Reporting only "v2 (0.878) vs. v1 as shipped (0.777), diff +0.101, CI
+excludes zero" would overclaim that the *new prompt wording* drove a
+10-point gain, when Framing 2 shows the prompt-text-only effect is
+positive but not statistically distinguishable from noise on this
+74-question sample -- most of Framing 1's real gain is the parsing/
+evidence fixes, which would have lifted v1's own score too if its
+stored answers were simply regraded.
+
+**Why this isn't itself overfitting/tuning:** no prompt, sampling, or
+agent-logic change was made in response to either framing's numbers
+(CLAUDE.md's no-tuning-this-session rule stands) -- this decision is
+about how to *report* a comparison honestly, not about changing the
+system being measured.
+
+**Alternatives rejected:** Reporting a single framing -- rejected for
+the overclaiming/underclaiming reasons above, whichever one was
+dropped. Re-running v1 with the pre-fix code to get a "fresh" 0.777 --
+unnecessary and wasteful; the original run's stored data plus a
+validator bypass reproduces the exact same number deterministically,
+with no live cost.
