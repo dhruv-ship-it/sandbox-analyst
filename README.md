@@ -152,5 +152,6 @@ the scripts here.
 
 ## Credits
 
-[InfiAgent-DABench](https://github.com/InfiAgent/InfiAgent) for the
-benchmark this project is measured on.
+[InfiAgent-DABench](https://github.com/InfiAgent/InfiAgent)
+([paper](https://arxiv.org/abs/2401.05507)) for the benchmark this
+project is measured on.
