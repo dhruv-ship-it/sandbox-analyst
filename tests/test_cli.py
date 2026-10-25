@@ -1,7 +1,10 @@
+import logging
+import logging.config
+
 import pytest
 
 from sandbox_analyst.bench.dabench import Question
-from sandbox_analyst.cli import build_parser, select_smoke_questions
+from sandbox_analyst.cli import build_parser, configure_app_logging, select_smoke_questions
 
 
 def _questions(level_counts: dict[str, int]) -> list[Question]:
@@ -141,3 +144,43 @@ def test_select_smoke_questions_ignores_questions_outside_the_given_pool():
     dev_ids = {q.id for q in dev_questions}
     assert all(q.id in dev_ids for q in selected)
     assert len(selected) == 5
+
+
+# ---- app logging (CLAUDE.md "make unexpected failures loud") ----
+
+
+@pytest.fixture
+def clean_app_logger():
+    """Save/restore the `sandbox_analyst` logger's state around a test that reconfigures it."""
+    app_logger = logging.getLogger("sandbox_analyst")
+    saved_handlers = list(app_logger.handlers)
+    saved_level = app_logger.level
+    saved_propagate = app_logger.propagate
+    app_logger.handlers.clear()
+    try:
+        yield app_logger
+    finally:
+        app_logger.handlers = saved_handlers
+        app_logger.setLevel(saved_level)
+        app_logger.propagate = saved_propagate
+
+
+def test_configure_app_logging_sends_app_logs_to_stdout(clean_app_logger, capsys):
+    configure_app_logging()
+    logging.getLogger("sandbox_analyst.api.runs").error("boom")
+
+    assert "boom" in capsys.readouterr().out
+
+
+def test_uvicorns_own_log_config_does_not_remove_the_app_logging_handler(clean_app_logger):
+    import uvicorn.config
+
+    configure_app_logging()
+    handler_before = clean_app_logger.handlers[0]
+
+    # disable_existing_loggers: False (uvicorn's own default) must leave a
+    # logger it never names -- "sandbox_analyst" -- completely untouched.
+    logging.config.dictConfig(uvicorn.config.LOGGING_CONFIG)
+
+    assert clean_app_logger.handlers == [handler_before]
+    assert clean_app_logger.disabled is False

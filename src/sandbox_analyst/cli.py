@@ -8,6 +8,7 @@ answer tags side by side and leaves scoring to a later task.
 """
 
 import argparse
+import logging
 import random
 import sys
 from pathlib import Path
@@ -296,12 +297,31 @@ def cmd_report(run_names: list[str]) -> int:
     return 0
 
 
+def configure_app_logging() -> None:
+    """Send this project's own loggers (`sandbox_analyst.*`) to stdout.
+
+    Independent of uvicorn's own log config, which `uvicorn.run()` applies
+    via `logging.config.dictConfig` after this is called -- that dict sets
+    `disable_existing_loggers: False` and never names `sandbox_analyst`, so
+    it cannot remove or disable the handler added here. uvicorn's own
+    "default" handler goes to stderr; this one is explicitly stdout, which
+    is the stream App Service's log stream is documented to follow.
+    """
+    handler = logging.StreamHandler(sys.stdout)
+    handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s"))
+    app_logger = logging.getLogger("sandbox_analyst")
+    app_logger.setLevel(logging.INFO)
+    app_logger.addHandler(handler)
+    app_logger.propagate = False
+
+
 def cmd_serve() -> int:
     """Run the public API with uvicorn, honoring Settings.port (the PORT env var)."""
     import uvicorn
 
     from sandbox_analyst.api import build_app
 
+    configure_app_logging()
     settings = Settings()
     app = build_app(settings)
     uvicorn.run(app, host="0.0.0.0", port=settings.port)

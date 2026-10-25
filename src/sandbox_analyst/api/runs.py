@@ -11,9 +11,11 @@ borrows the agent's internal id, once known, to locate chart PNGs.
 """
 
 import asyncio
+import logging
 import re
 import threading
 import time
+import traceback
 import uuid
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
@@ -27,9 +29,12 @@ from sandbox_analyst.llm import LLMClient
 from sandbox_analyst.sandbox import Sandbox
 
 from .limits import RateLimiter
+from .redact import redact_secrets
 
 if TYPE_CHECKING:
     from sandbox_analyst.config import Settings
+
+logger = logging.getLogger(__name__)
 
 # Matches exactly what agent/loop.py's _write_artifacts ever generates.
 ARTIFACT_NAME_RE = re.compile(r"^attempt\d+_\d+\.png$")
@@ -291,9 +296,20 @@ def _execute_run(
             record.result = result
             record.status = result.status
     except Exception as exc:  # an unexpected failure outside run_agent's own status machine
+        error_type = type(exc).__name__
+        # Logged in full (run_id, type, message, traceback) for operators via stdout;
+        # the client only ever gets `error_type` below, never the message or traceback
+        # (see DECISIONS.md -- "make unexpected failures loud" without leaking internals).
+        tb_text = "".join(traceback.format_exception(type(exc), exc, exc.__traceback__))
+        logger.error(
+            redact_secrets(
+                f"run {record.run_id} failed unexpectedly: {error_type}: {exc}\n{tb_text}",
+                settings,
+            )
+        )
         with record.lock:
             record.status = "error"
-            record.error = str(exc)
+            record.error = error_type
             next_seq = len(record.events)
             fallback_run_id = record.agent_run_id or record.run_id
         # run_agent's own "run_finished" event is what tells an SSE client (and the
@@ -310,6 +326,7 @@ def _execute_run(
                 attempt=agent_loop.MAX_ATTEMPTS,
                 payload={
                     "status": "error",
+                    "error_type": error_type,
                     "total_prompt_tokens": 0,
                     "total_completion_tokens": 0,
                     "total_latency_ms": 0,

@@ -1,4 +1,5 @@
 import json
+import logging
 
 import pytest
 
@@ -53,13 +54,66 @@ def test_unexpected_failure_still_emits_a_terminal_run_finished_event(
 
     summary = wait_for_run(client, run_id)
     assert summary["status"] == "error"
-    assert summary["error"] == "boom"
+    # Only the exception TYPE reaches the client, never its message.
+    assert summary["error"] == "RuntimeError"
+    assert "boom" not in json.dumps(summary)
 
     events = drain_sse(client, run_id)
     assert events[-1]["type"] == "run_finished"
     assert events[-1]["payload"]["status"] == "error"
+    assert events[-1]["payload"]["error_type"] == "RuntimeError"
     assert [e["seq"] for e in events] == sorted(e["seq"] for e in events)
     assert all(e["run_id"] == run_id for e in events)
+    assert all("boom" not in json.dumps(e) for e in events)
+
+
+def test_unexpected_failure_is_logged_with_run_id_type_message_and_traceback(
+    build_client, load_sales_dataset, wait_for_run, caplog
+):
+    client = build_client(llm=FakeLLM([RuntimeError("boom")]))
+    dataset_id = load_sales_dataset(client)
+    run_id = _create_run(client, dataset_id).json()["run_id"]
+
+    with caplog.at_level(logging.ERROR, logger="sandbox_analyst.api.runs"):
+        wait_for_run(client, run_id)
+
+    assert run_id in caplog.text
+    assert "RuntimeError" in caplog.text
+    assert "boom" in caplog.text
+    assert "Traceback" in caplog.text
+
+
+def test_unexpected_failure_log_redacts_a_credential_looking_substring(
+    build_client, load_sales_dataset, wait_for_run, caplog
+):
+    secret = "gsk_fake1234567890abcdef"  # noqa: S105 -- a fake value for this test only
+    client = build_client(llm=FakeLLM([RuntimeError(f"token {secret} was rejected")]))
+    dataset_id = load_sales_dataset(client)
+    run_id = _create_run(client, dataset_id).json()["run_id"]
+
+    with caplog.at_level(logging.ERROR, logger="sandbox_analyst.api.runs"):
+        wait_for_run(client, run_id)
+
+    assert secret not in caplog.text
+    assert "[redacted]" in caplog.text
+
+
+def test_unexpected_failure_log_redacts_a_configured_secret_setting_value(
+    build_client, load_sales_dataset, wait_for_run, caplog
+):
+    secret = "not-a-known-prefix-but-still-configured"  # noqa: S105
+    client = build_client(
+        llm=FakeLLM([RuntimeError(f"provider rejected key {secret}")]),
+        groq_api_key=secret,
+    )
+    dataset_id = load_sales_dataset(client)
+    run_id = _create_run(client, dataset_id).json()["run_id"]
+
+    with caplog.at_level(logging.ERROR, logger="sandbox_analyst.api.runs"):
+        wait_for_run(client, run_id)
+
+    assert secret not in caplog.text
+    assert "[redacted]" in caplog.text
 
 
 def test_run_create_rejects_a_question_that_is_too_short(client, load_sales_dataset):

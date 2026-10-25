@@ -2396,3 +2396,49 @@ image, since Docker happens to be present -- rejected as contrary to
 this project's explicit host-footprint rule; "it happens to be
 installed" isn't a reason to start depending on it being there.
 
+## D-092 — Unexpected API failures are logged in full to stdout (redacted); the client gets only the exception type
+
+**Date:** 2026-10-25
+
+**Decision:** `_execute_run`'s `except Exception` branch (`api/runs.py`)
+now logs `run {run_id} failed unexpectedly: {ExceptionType}: {message}`
+plus the full formatted traceback via Python's `logging` module (the
+`sandbox_analyst.api.runs` logger), after passing the whole string
+through a new `redact_secrets()` (`api/redact.py`). That function masks
+any substring matching a known Modal/Groq/NVIDIA credential prefix
+(`ak-`, `as-`, `gsk_`, `nvapi-`) and the literal value of any configured
+`SecretStr` setting, walked generically off `Settings.model_fields` --
+not a hardcoded field list. The exception's type name is also added to
+the synthetic `run_finished` event's payload as `error_type`, and
+`RunRecord.error` (surfaced at `GET /api/runs/{id}`'s `error` field) is
+now the type name too -- never the raw message. `cli.py` gains
+`configure_app_logging()`, called at the top of `cmd_serve()`, which
+attaches a `StreamHandler(sys.stdout)` to the `sandbox_analyst` logger
+before `uvicorn.run()` ever calls its own `logging.config.dictConfig`.
+
+**Why:** Reading the installed uvicorn's own `LOGGING_CONFIG`
+(`.venv/.../uvicorn/config.py`) confirmed `disable_existing_loggers:
+False` and that it never names `sandbox_analyst` -- so a handler added
+before `uvicorn.run()` survives uvicorn's own log setup by
+construction, not by assumption; a unit test (`tests/test_cli.py`)
+proves this against the real installed config rather than trusting it
+structurally. Redacting generically off `Settings.model_fields` (rather
+than a hardcoded list of secret field names) means a future secret
+setting is covered automatically, with no second place to remember to
+update. Exposing only the exception type to the client (both via the
+SSE event and the REST summary) matches this project's own "make
+unexpected failures loud without leaking internals" framing -- loud to
+an operator watching stdout, opaque to a public visitor.
+
+**Alternatives rejected:** Leaving `record.error` as the raw message
+and only adding a separate `error_type` field -- rejected, it would
+still leak the message through the REST endpoint even though the SSE
+event was fixed, defeating the point. Hardcoding the redaction pass to
+`nim_api_key`/`groq_api_key` by name -- rejected, D-019 already
+established every secret setting is `SecretStr`; walking `model_fields`
+generically gets the same guarantee this project's settings design
+already provides, for free. Relying on uvicorn's documented default
+behavior alone, with no test -- rejected, this project's own culture
+(D-026, D-037) is to verify SDK/framework behavior by reading the
+installed source and testing it, not by assuming an unpinned default
+will hold forever.
