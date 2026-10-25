@@ -1,0 +1,222 @@
+[
+  {
+    "id": "import_os",
+    "code": "import os\n",
+    "expected_rule_id": "IMPORT_NOT_ALLOWED"
+  },
+  {
+    "id": "from_os_import_system",
+    "code": "from os import system\n",
+    "expected_rule_id": "IMPORT_NOT_ALLOWED"
+  },
+  {
+    "id": "dunder_import_call",
+    "code": "__import__('os')\n",
+    "expected_rule_id": "FORBIDDEN_CALL"
+  },
+  {
+    "id": "eval_call",
+    "code": "eval('1 + 1')\n",
+    "expected_rule_id": "FORBIDDEN_CALL"
+  },
+  {
+    "id": "exec_call",
+    "code": "exec('pass')\n",
+    "expected_rule_id": "FORBIDDEN_CALL"
+  },
+  {
+    "id": "compile_call",
+    "code": "compile('pass', '<s>', 'exec')\n",
+    "expected_rule_id": "FORBIDDEN_CALL"
+  },
+  {
+    "id": "open_write_etc",
+    "code": "open('/etc/x', 'w')\n",
+    "expected_rule_id": "UNSAFE_WRITE"
+  },
+  {
+    "id": "open_write_parent_traversal",
+    "code": "open('../x', 'w')\n",
+    "expected_rule_id": "UNSAFE_WRITE"
+  },
+  {
+    "id": "attribute_chain_os_system",
+    "code": "import pandas as pd\npd.io.common.os.system('ls')\n",
+    "expected_rule_id": "FORBIDDEN_ATTRIBUTE"
+  },
+  {
+    "id": "class_bases_subclasses",
+    "code": "().__class__.__bases__[0].__subclasses__()\n",
+    "expected_rule_id": "DUNDER_ACCESS"
+  },
+  {
+    "id": "getattr_call",
+    "code": "import pandas as pd\ngetattr(pd, 'io')\n",
+    "expected_rule_id": "FORBIDDEN_CALL"
+  },
+  {
+    "id": "globals_builtins_lookup",
+    "code": "globals()['__builtins__']\n",
+    "expected_rule_id": "FORBIDDEN_CALL"
+  },
+  {
+    "id": "to_csv_outside_work",
+    "code": "import pandas as pd\npd.DataFrame().to_csv('/tmp/x.csv')\n",
+    "expected_rule_id": "UNSAFE_WRITE"
+  },
+  {
+    "id": "savefig_outside_work",
+    "code": "import matplotlib.pyplot as plt\nplt.savefig('/etc/x.png')\n",
+    "expected_rule_id": "UNSAFE_WRITE"
+  },
+  {
+    "id": "read_pickle",
+    "code": "import pandas as pd\npd.read_pickle('x.pkl')\n",
+    "expected_rule_id": "PICKLE"
+  },
+  {
+    "id": "numpy_load_allow_pickle",
+    "code": "import numpy as np\nnp.load('x.npy', allow_pickle=True)\n",
+    "expected_rule_id": "PICKLE"
+  },
+  {
+    "id": "bare_importlib_reference",
+    "code": "importlib\n",
+    "expected_rule_id": "FORBIDDEN_ATTRIBUTE"
+  },
+  {
+    "id": "sys_modules",
+    "code": "sys.modules\n",
+    "expected_rule_id": "FORBIDDEN_ATTRIBUTE"
+  },
+  {
+    "id": "bare_socket_reference",
+    "code": "socket.socket()\n",
+    "expected_rule_id": "FORBIDDEN_ATTRIBUTE"
+  },
+  {
+    "id": "subprocess_run",
+    "code": "subprocess.run(['ls'])\n",
+    "expected_rule_id": "FORBIDDEN_ATTRIBUTE"
+  },
+  {
+    "id": "ctypes_cdll",
+    "code": "ctypes.CDLL('libc.so.6')\n",
+    "expected_rule_id": "FORBIDDEN_ATTRIBUTE"
+  },
+  {
+    "id": "builtins_eval_attr",
+    "code": "builtins.eval('1')\n",
+    "expected_rule_id": "FORBIDDEN_ATTRIBUTE"
+  },
+  {
+    "id": "lambda_trick_dunder_import",
+    "code": "(lambda: __import__('os'))()\n",
+    "expected_rule_id": "FORBIDDEN_CALL"
+  },
+  {
+    "id": "setattr_call",
+    "code": "import pandas as pd\nsetattr(pd, 'x', 1)\n",
+    "expected_rule_id": "FORBIDDEN_CALL"
+  },
+  {
+    "id": "delattr_call",
+    "code": "import pandas as pd\ndelattr(pd, 'x')\n",
+    "expected_rule_id": "FORBIDDEN_CALL"
+  },
+  {
+    "id": "vars_call",
+    "code": "vars()\n",
+    "expected_rule_id": "FORBIDDEN_CALL"
+  },
+  {
+    "id": "locals_call",
+    "code": "locals()\n",
+    "expected_rule_id": "FORBIDDEN_CALL"
+  },
+  {
+    "id": "breakpoint_call",
+    "code": "breakpoint()\n",
+    "expected_rule_id": "FORBIDDEN_CALL"
+  },
+  {
+    "id": "input_call",
+    "code": "input()\n",
+    "expected_rule_id": "FORBIDDEN_CALL"
+  },
+  {
+    "id": "help_call",
+    "code": "help()\n",
+    "expected_rule_id": "FORBIDDEN_CALL"
+  },
+  {
+    "id": "relative_import_dot",
+    "code": "from . import sibling\n",
+    "expected_rule_id": "IMPORT_NOT_ALLOWED"
+  },
+  {
+    "id": "relative_import_dotted",
+    "code": "from .sibling import thing\n",
+    "expected_rule_id": "IMPORT_NOT_ALLOWED"
+  },
+  {
+    "id": "import_xml_not_allowed",
+    "code": "import xml.etree.ElementTree\n",
+    "expected_rule_id": "IMPORT_NOT_ALLOWED"
+  },
+  {
+    "id": "shutil_rmtree",
+    "code": "shutil.rmtree('/')\n",
+    "expected_rule_id": "FORBIDDEN_ATTRIBUTE"
+  },
+  {
+    "id": "os_popen_bare",
+    "code": "os.popen('ls')\n",
+    "expected_rule_id": "FORBIDDEN_ATTRIBUTE"
+  },
+  {
+    "id": "numpy_save_outside_work",
+    "code": "import numpy as np\nnp.save('/etc/evil.npy', [1, 2, 3])\n",
+    "expected_rule_id": "UNSAFE_WRITE"
+  },
+  {
+    "id": "to_pickle_outside_work",
+    "code": "import pandas as pd\npd.DataFrame().to_pickle('/tmp/x.pkl')\n",
+    "expected_rule_id": "UNSAFE_WRITE"
+  },
+  {
+    "id": "open_write_work_with_traversal",
+    "code": "open('/work/../etc/passwd', 'w')\n",
+    "expected_rule_id": "UNSAFE_WRITE"
+  },
+  {
+    "id": "dunder_globals_attr",
+    "code": "f.__globals__\n",
+    "expected_rule_id": "DUNDER_ACCESS"
+  },
+  {
+    "id": "dunder_code_attr",
+    "code": "f.__code__\n",
+    "expected_rule_id": "DUNDER_ACCESS"
+  },
+  {
+    "id": "dunder_mro_attr",
+    "code": "type(1).__mro__\n",
+    "expected_rule_id": "DUNDER_ACCESS"
+  },
+  {
+    "id": "dunder_name_attr",
+    "code": "some_func.__name__\n",
+    "expected_rule_id": "DUNDER_ACCESS"
+  },
+  {
+    "id": "bare_dunder_class_name",
+    "code": "__class__\n",
+    "expected_rule_id": "DUNDER_ACCESS"
+  },
+  {
+    "id": "syntax_error",
+    "code": "def f(:\n",
+    "expected_rule_id": "SYNTAX"
+  }
+]

@@ -22,6 +22,7 @@ from sandbox_analyst.bench.split import DEFAULT_QUESTIONS_PATH, SplitLockedError
 from sandbox_analyst.config import Settings
 from sandbox_analyst.llm import LLMConfigError, make_llm
 from sandbox_analyst.llm.usage import DEFAULT_USAGE_LOG_PATH
+from sandbox_analyst.redteam import run_redteam
 from sandbox_analyst.sandbox import make_sandbox
 
 LEVEL_ORDER = ["easy", "medium", "hard"]
@@ -297,6 +298,23 @@ def cmd_report(run_names: list[str]) -> int:
     return 0
 
 
+def cmd_redteam(run_name: str, concurrency: int) -> int:
+    settings = Settings()
+    outcome = run_redteam(run_name=run_name, settings=settings, concurrency=concurrency)
+    overall = outcome.report["overall"]
+    print(  # noqa: T201
+        f"redteam {outcome.run_name}: handled {overall['handled']} of {overall['total']}"
+    )
+    for cat in ("A", "B", "C", "D"):
+        block = outcome.report["categories"][cat]
+        print(f"  category {cat}: handled {block['handled']} of {block['total']}")  # noqa: T201
+    n_leaks = outcome.report["canary"]["n_leaks"]
+    print(f"  canary leaks: {n_leaks}")  # noqa: T201
+    print(f"wrote {outcome.md_path}")  # noqa: T201
+    print(f"wrote {outcome.json_path}")  # noqa: T201
+    return 1 if n_leaks > 0 else 0
+
+
 def configure_app_logging() -> None:
     """Send this project's own loggers (`sandbox_analyst.*`) to stdout.
 
@@ -366,6 +384,12 @@ def build_parser() -> argparse.ArgumentParser:
 
     subparsers.add_parser("serve", help="run the public API (uvicorn, host 0.0.0.0, PORT env var)")
 
+    redteam_parser = subparsers.add_parser(
+        "redteam", help="run the red-team suite (categories A-D + layer isolation)"
+    )
+    redteam_parser.add_argument("--run-name", required=True)
+    redteam_parser.add_argument("--concurrency", type=int, default=1)
+
     return parser
 
 
@@ -389,6 +413,8 @@ def main(argv: list[str] | None = None) -> int:
         return cmd_report(args.run_names)
     if args.command == "serve":
         return cmd_serve()
+    if args.command == "redteam":
+        return cmd_redteam(args.run_name, args.concurrency)
     parser.error(f"unknown command: {args.command}")
     return 2
 

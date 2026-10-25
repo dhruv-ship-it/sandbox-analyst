@@ -19,6 +19,7 @@ from sandbox_analyst.llm import (
     LLMClient,
     LLMConfigError,
     LLMResponse,
+    LLMTruncated,
     LLMUnavailable,
     Message,
     RateLimitExhausted,
@@ -230,7 +231,7 @@ def _call_llm(
     emitter.emit("llm_request", attempt_n, _messages_payload(messages))
     try:
         response = llm.complete(messages)
-    except (RateLimitExhausted, LLMUnavailable, LLMConfigError) as exc:
+    except (RateLimitExhausted, LLMUnavailable, LLMConfigError, LLMTruncated) as exc:
         emitter.emit("observation", attempt_n, {"text": f"llm_error: {exc}"})
         raise _StopRun("llm_error") from exc
     emitter.emit("llm_response", attempt_n, _response_payload(response))

@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from sandbox_analyst.agent.profile import DatasetProfile, profile_csv
+from sandbox_analyst.sandbox.base import validate_upload_name
 
 EXAMPLES_DIR = Path(__file__).resolve().parent / "examples"
 
@@ -82,7 +83,22 @@ class DatasetStore:
         record.path.unlink(missing_ok=True)
 
     def validate_and_profile(self, file_name: str, data: bytes) -> DatasetProfile:
-        """Raise DatasetError on a bad upload; otherwise return its profile."""
+        """Raise DatasetError on a bad upload; otherwise return its profile.
+
+        `file_name` is never used as an on-disk path here (`store()` always
+        writes under a server-generated id) -- but it IS later used as-is
+        for the in-sandbox upload path once a run starts
+        (`Sandbox.upload`), which already rejects separators/`..` via
+        `validate_upload_name` (D-102). Applying that same check here, at
+        upload time, gives a path-traversal-shaped name a clean 400
+        immediately, rather than deferring the failure to a generic
+        run-time `error` status the first time a question is actually
+        asked about it.
+        """
+        try:
+            validate_upload_name(file_name)
+        except ValueError as exc:
+            raise DatasetError(str(exc)) from exc
         if not file_name.lower().endswith(".csv"):
             raise DatasetError("file name must end with .csv")
         max_bytes = int(self.max_upload_mb * 1024 * 1024)

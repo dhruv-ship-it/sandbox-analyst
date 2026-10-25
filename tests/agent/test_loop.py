@@ -5,7 +5,7 @@ import pytest
 from sandbox_analyst.agent.loop import run_agent
 from sandbox_analyst.agent.profile import DELIM_END, DELIM_START
 from sandbox_analyst.config import Settings
-from sandbox_analyst.llm import FakeLLM, LLMConfigError, LLMResponse
+from sandbox_analyst.llm import FakeLLM, LLMConfigError, LLMResponse, LLMTruncated
 from sandbox_analyst.sandbox import (
     ExecError,
     ExecResult,
@@ -378,6 +378,20 @@ def test_no_code_block_found_then_repair_then_success():
 
 def test_llm_config_error_is_reported_as_llm_error_status():
     llm = FakeLLM([LLMConfigError("bad api key")])
+    sandbox = FakeSandbox([])
+    result = run_agent(
+        CSV, "data.csv", "q?", llm=llm, sandbox_factory=lambda: sandbox, settings=_settings()
+    )
+    assert result.status == "llm_error"
+    assert result.attempts == []
+
+
+def test_llm_truncated_is_reported_as_llm_error_status_not_an_uncaught_crash():
+    # Found by the P3 red-team suite's fault-injection cases (category C):
+    # LLMTruncated (finish_reason="length", no visible content) was not in
+    # _call_llm's caught exception tuple, so a real truncated reply would
+    # crash run_agent instead of producing a clean terminal status.
+    llm = FakeLLM([LLMTruncated("all tokens spent on reasoning")])
     sandbox = FakeSandbox([])
     result = run_agent(
         CSV, "data.csv", "q?", llm=llm, sandbox_factory=lambda: sandbox, settings=_settings()
