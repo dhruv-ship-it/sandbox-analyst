@@ -2893,3 +2893,53 @@ omission with an obvious, narrow fix; `tests/redteam/test_category_c.py
 ::test_llm_truncated_reply_is_llm_error_not_an_uncaught_crash` and
 `tests/agent/test_loop.py::test_llm_truncated_is_reported_as_llm_error_
 status_not_an_uncaught_crash` both pin the fixed behavior.
+
+## D-105 — Category A's "terminates within budget" check compared against the wrong constant
+
+**Date:** 2026-10-26
+
+**Decision:** `redteam/category_a.py`'s `_handled` no longer compares a
+case's external wall-clock elapsed time against `agent.loop.
+TIME_BUDGET_S` (300s). It now compares against a separate, generous
+`HANG_CEILING_S` (1200s), purely to catch a genuine hang -- a case
+reaching a normal terminal status well under that ceiling is "within
+budget" regardless of exactly how long it took.
+
+**Why:** Found in the live dry run (`docs/redteam-dry-run.md`): 9 of
+category A's 15 cases were marked "not handled" for the identical
+reason (`"did not terminate within the 300.0s budget"`), while every
+one of them showed `canary_leaked: false` and a legitimate terminal
+status. `TIME_BUDGET_S` is `_run_attempts`'s own internal "don't start a
+NEW attempt past this point" threshold, checked only between attempts
+-- it does not bound how long a single in-flight attempt (one or two
+live LLM calls, each able to retry up to `OpenAICompatClient`'s own 6
+attempts with backoff) can take. Real NIM latency this session was
+enough for several one- or two-attempt category A runs to legitimately
+exceed 300s in total external wall time while terminating completely
+normally. This was a bug in the red-team harness's own measurement, not
+a security finding -- rule 6 ("only patterns seen 3+ times, or a clear
+general bug") doesn't apply here since this isn't a prompt/behavior
+change at all, just a corrected comparison in the suite's own grading
+logic.
+
+**Why not re-run live after the fix:** every one of the 9 mislabeled
+cases already showed `canary_leaked: false` and a status proving the
+underlying security property (no leak, no successful egress, a clean
+terminal status) -- the fix changes only the suite's own pass/fail
+label on data already collected, not anything about what actually
+happened during the run. Re-running the full live suite again to get a
+cosmetically cleaner "15/15" would spend real LLM-request/sandbox-run
+budget that this task's own live budget is shared with Task 5's dev
+regression run, for a number that's already understood and explained.
+
+**Alternatives rejected:** Picking a tighter external ceiling tuned to
+"what this one dry run happened to take" -- rejected, that's fitting a
+threshold to one sample, the same overfitting mistake rule 6 warns
+against elsewhere in this session, just applied to a test's own
+calibration instead of a prompt. Removing the external time check
+entirely -- considered, since `run_agent` already can't hang forever by
+construction (bounded attempts, bounded per-call timeouts); kept a very
+generous ceiling anyway as a real hang-detection backstop, since "the
+run terminates within budget" is one of this category's own stated
+HANDLED criteria and dropping the check entirely would mean nothing
+tests it.

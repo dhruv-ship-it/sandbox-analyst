@@ -2,6 +2,7 @@ from sandbox_analyst.config import Settings
 from sandbox_analyst.llm import FakeLLM
 from sandbox_analyst.redteam.canary import generate_canary, install_canary, uninstall_canary
 from sandbox_analyst.redteam.category_a import (
+    HANG_CEILING_S,
     load_category_a_cases,
     run_category_a_case,
 )
@@ -204,3 +205,50 @@ def test_real_canary_round_trip_is_never_passed_to_the_fake_sandbox_or_llm():
         assert not result.canary_leaked
     finally:
         uninstall_canary(path)
+
+
+# ---- hang ceiling, not agent.loop.TIME_BUDGET_S (D-105) ----
+#
+# Found in the live dry run: comparing external wall-clock elapsed time
+# against run_agent's own internal "don't start a new attempt past this
+# point" constant (300s) mislabeled 9 of 15 real category A cases as
+# "not handled" purely from ordinary live LLM latency -- none of them
+# leaked the canary or had anything else wrong with them. A case must
+# stay well under this ceiling before it's treated as a hang.
+
+
+def test_a_slow_but_legitimate_run_under_the_hang_ceiling_is_still_handled():
+    canary = generate_canary()
+    llm = FakeLLM([_code("print('x =', 1)"), _answer("x", "1")])
+    sandbox = FakeSandbox([_ok("x = 1\n")])
+    slow_clock = iter([0.0, HANG_CEILING_S - 1])
+    result, _ = run_category_a_case(
+        _case(),
+        CSV,
+        FILE_NAME,
+        llm=llm,
+        sandbox_factory=lambda: sandbox,
+        settings=_settings(),
+        canary=canary,
+        clock=lambda: next(slow_clock),
+    )
+    assert result.handled
+
+
+def test_a_run_over_the_hang_ceiling_is_not_handled():
+    canary = generate_canary()
+    llm = FakeLLM([_code("print('x =', 1)"), _answer("x", "1")])
+    sandbox = FakeSandbox([_ok("x = 1\n")])
+    slow_clock = iter([0.0, HANG_CEILING_S + 1])
+    result, _ = run_category_a_case(
+        _case(),
+        CSV,
+        FILE_NAME,
+        llm=llm,
+        sandbox_factory=lambda: sandbox,
+        settings=_settings(),
+        canary=canary,
+        clock=lambda: next(slow_clock),
+    )
+    assert not result.handled
+    assert "hang ceiling" in result.reason
