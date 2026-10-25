@@ -2488,3 +2488,39 @@ instead of the `run_started` event -- rejected, `created_at` also
 includes however long the run sat queued behind
 `sa_max_concurrent_runs`, which isn't what a visitor watching the
 timeline actually waited through once the run itself started.
+
+## D-094 — README v1: no accuracy numbers, a Mermaid pipeline diagram, and the GitHub DABench link doubles as the paper citation
+
+**Date:** 2026-10-25
+
+**Decision:** Replaced the "under construction" placeholder with a
+full README: a one-paragraph pitch, a prominent live-demo link, a
+`docs/img/demo.png` screenshot placeholder (not yet added), a Mermaid
+flowchart plus 6 bullets for "How it works," a "Safety model" section
+linking `docs/security.md`, an "Evaluation" section that states plainly
+"Results will be published after the held-out run" with zero accuracy
+numbers, a one-line tech stack, an updated repo map (reflecting
+`agent/`/`api/`/`web/` as built, not planned), PowerShell local setup, a
+"Project status" done/next list, and Licence/Credits sections. The
+Credits/data-notice link reuses the same
+`https://github.com/InfiAgent/InfiAgent` URL the pre-existing README
+and `docs/dabench.md` already cited, rather than introducing a new,
+unverified paper link.
+
+**Why:** `docs/results-dev.md` already documents that only 2 of 3
+planned dev runs exist and the held-out split hasn't been touched at
+all (P6 is still ahead, per `docs/PLAN.md`) -- reporting any number
+here, even a dev-only one, would contradict this project's own
+test-set discipline and the "numbers only after the frozen run" rule
+that's been consistent since D-013. Reusing the already-cited GitHub
+link (rather than guessing at an arXiv id from memory) keeps every URL
+in this document one this project had already verified and used, not a
+newly-recalled one.
+
+**Alternatives rejected:** Including the 2-of-3 dev-split numbers from
+`docs/results-dev.md` as a preview -- rejected, the task explicitly
+asks for "no accuracy numbers yet," and dev numbers specifically risk
+being read as a stand-in for the held-out result they're not. Guessing
+an arXiv URL for the InfiAgent-DABench paper from memory for the
+Credits link -- rejected in favor of the GitHub link this repo already
+uses and has verified.
