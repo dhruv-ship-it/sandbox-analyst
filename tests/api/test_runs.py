@@ -32,7 +32,9 @@ def test_full_run_lifecycle(client, load_sales_dataset, wait_for_run):
     assert summary["attempts"][0]["exec_ok"] is True
     assert summary["chart_urls"] == []
     assert summary["prompt_tokens"] > 0
-    assert summary["latency_ms"] >= 0
+    assert summary["wall_time_ms"] >= 0
+    assert summary["llm_time_ms"] >= 0
+    assert summary["sandbox_time_ms"] >= 0
 
     trace_response = client.get(f"/api/runs/{run_id}/trace")
     assert trace_response.status_code == 200
@@ -65,6 +67,32 @@ def test_unexpected_failure_still_emits_a_terminal_run_finished_event(
     assert [e["seq"] for e in events] == sorted(e["seq"] for e in events)
     assert all(e["run_id"] == run_id for e in events)
     assert all("boom" not in json.dumps(e) for e in events)
+
+
+def test_unexpected_failure_summary_includes_progress_recorded_before_the_crash(
+    build_client, load_sales_dataset, wait_for_run
+):
+    # The first call answers with real, checkable, runnable code; the second
+    # (the answer step) crashes -- so by the time _execute_run's except
+    # Exception branch fires, attempt 1 already has a code/check/exec
+    # history that must survive into the summary, not collapse to zeros.
+    llm = FakeLLM(["```python\nprint(42)\n```", RuntimeError("boom")])
+    client = build_client(llm=llm)
+    dataset_id = load_sales_dataset(client)
+    run_id = _create_run(client, dataset_id).json()["run_id"]
+
+    summary = wait_for_run(client, run_id)
+    assert summary["status"] == "error"
+    assert len(summary["attempts"]) == 1
+    attempt = summary["attempts"][0]
+    assert attempt["has_code"] is True
+    assert attempt["check_ok"] is True
+    assert attempt["exec_ok"] is True
+    assert attempt["answered"] is False
+    assert summary["prompt_tokens"] > 0
+    assert summary["completion_tokens"] > 0
+    assert summary["llm_time_ms"] >= 0
+    assert summary["wall_time_ms"] >= 0
 
 
 def test_unexpected_failure_is_logged_with_run_id_type_message_and_traceback(

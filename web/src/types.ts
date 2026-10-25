@@ -197,7 +197,13 @@ export interface RunSummary {
   chart_urls: string[];
   prompt_tokens: number;
   completion_tokens: number;
-  latency_ms: number;
+  /** Total wall time, run_started -> run_finished (the headline "Time" stat). */
+  wall_time_ms: number;
+  /** Sum of LLM call latencies -- a secondary stat, not the headline time. */
+  llm_time_ms: number;
+  /** Sum of sandbox exec durations -- a secondary stat. */
+  sandbox_time_ms: number;
+  /** The exception TYPE only (e.g. "FileNotFoundError") on an unexpected failure; never its message. */
   error: string | null;
 }
 

@@ -2442,3 +2442,49 @@ behavior alone, with no test -- rejected, this project's own culture
 (D-026, D-037) is to verify SDK/framework behavior by reading the
 installed source and testing it, not by assuming an unpinned default
 will hold forever.
+
+## D-093 — Run-summary attempts/tokens/time are rebuilt from recorded events, not from `AgentResult`; wall time becomes the headline stat
+
+**Date:** 2026-10-25
+
+**Decision:** `api/runs.py`'s `build_summary` no longer reads
+`attempts`/`prompt_tokens`/`completion_tokens`/timing fields off
+`AgentResult` directly. A new `summarize_events(events)` replays the
+run's own recorded `AgentEvent` dicts (already kept in
+`RunRecord.events` for SSE replay) into the same shape, live, regardless
+of whether the run ever produced an `AgentResult` at all. `RunRecord`
+gains `run_started_ts`/`run_finished_ts`, set from the matching events'
+own `ts` inside `on_event`; the REST summary's new `wall_time_ms` is
+`(run_finished_ts - run_started_ts) * 1000`, replacing the old
+`latency_ms` field (which was actually `AgentResult.total_latency_ms`
+-- the sum of LLM call latencies, not wall time). `llm_time_ms` and
+`sandbox_time_ms` are reported alongside it as secondary stats.
+`summarize_attempt(AttemptRecord)` and the now-unused `AttemptRecord`
+import are deleted in favor of `summarize_events`.
+
+**Why:** Found live in the deployed demo -- the Result panel's "Time"
+stat showed 2.2s for a run that visibly took ~13s (sandbox cold start
+alone was ~10s), because `latency_ms` was never wall time to begin
+with. Separately, an unexpected-failure run showed "Attempts 0" even
+though attempt 1 had visibly run, because `build_summary` only ever
+read attempt/token data off `record.result`, which is `None` on that
+path (CLAUDE.md rule 9 forbids touching `agent/loop.py`, so
+`AgentResult` can't gain a wall-time field or survive a mid-run crash).
+Event replay is the only place both bugs can be fixed at once without
+an agent-loop change: every attempt emits exactly one `code` event and
+at most one `exec_result`/`answer` event, and every LLM call emits
+exactly one `llm_response` event, so summing those is provably
+identical to `AgentResult`'s own totals once a result exists, and is
+the *only* available truth when one doesn't.
+
+**Alternatives rejected:** Keeping two separate summarizers (one from
+`AttemptRecord`, a fallback one from events only when `result is None`)
+-- rejected once it was clear the event-derived version is exact in
+both cases; two codepaths computing the same numbers is exactly the
+kind of drift risk this project's own `export_ui_fixtures.py` precedent
+(D-083) already argues against. Computing wall time from
+`RunRecord.created_at` (set when the API first accepts the request)
+instead of the `run_started` event -- rejected, `created_at` also
+includes however long the run sat queued behind
+`sa_max_concurrent_runs`, which isn't what a visitor watching the
+timeline actually waited through once the run itself started.

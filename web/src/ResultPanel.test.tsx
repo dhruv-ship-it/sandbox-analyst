@@ -19,7 +19,9 @@ function makeSummary(overrides: Partial<RunSummary> = {}): RunSummary {
     chart_urls: [],
     prompt_tokens: 100,
     completion_tokens: 20,
-    latency_ms: 500,
+    wall_time_ms: 13000,
+    llm_time_ms: 2200,
+    sandbox_time_ms: 10300,
     error: null,
     ...overrides,
   };
@@ -45,6 +47,45 @@ describe("ResultPanel", () => {
     expect(container.textContent).toContain("Answered");
     expect(container.textContent).toContain("x");
     expect(container.querySelector("a[href='/api/runs/abc123/trace']")).not.toBeNull();
+    unmount();
+  });
+
+  it("shows wall time as the headline Time stat, with LLM/sandbox time as secondary stats", () => {
+    const { container, unmount } = renderToContainer(<ResultPanel summary={makeSummary()} />);
+    expect(container.textContent).toContain("13.0s");
+    expect(container.textContent).toContain("LLM time 2.2s");
+    expect(container.textContent).toContain("Sandbox time 10.3s");
+    unmount();
+  });
+
+  it("shows the attempts, tokens, and time recorded before an unexpected failure", () => {
+    const summary = makeSummary({
+      status: "error",
+      error: "RuntimeError",
+      answers: [],
+      explanation: "",
+      evidence: [],
+      attempts: [
+        {
+          attempt: 1,
+          has_code: true,
+          check_ok: true,
+          n_check_violations: 0,
+          exec_ok: true,
+          timed_out: false,
+          answered: false,
+          observation: null,
+        },
+      ],
+      prompt_tokens: 40,
+      completion_tokens: 10,
+      wall_time_ms: 900,
+      llm_time_ms: 800,
+      sandbox_time_ms: 50,
+    });
+    const { container, unmount } = renderToContainer(<ResultPanel summary={summary} />);
+    expect(container.textContent).toContain("Unexpected error (RuntimeError)");
+    expect(container.querySelector(".stats dd")?.textContent).toBe("1");
     unmount();
   });
 });

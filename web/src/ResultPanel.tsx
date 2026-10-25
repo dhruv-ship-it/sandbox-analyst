@@ -12,11 +12,16 @@ const STATUS_MESSAGES: Record<string, string> = {
   tool_failure: "The sandbox itself ran into trouble, so the run was stopped.",
   budget_exceeded: "This run used up its time or token budget before finishing.",
   llm_error: "The language model provider was unavailable, so the run was stopped.",
-  error: "Something unexpected went wrong while running this.",
+  error: "Something unexpected went wrong while running this. No internal details are shown here.",
 };
 
 export function ResultPanel({ summary }: { summary: RunSummary }): JSX.Element {
-  const message = STATUS_MESSAGES[summary.status] ?? "This run ended with an unrecognized status.";
+  const baseMessage =
+    STATUS_MESSAGES[summary.status] ?? "This run ended with an unrecognized status.";
+  const message =
+    summary.status === "error" && summary.error
+      ? `Unexpected error (${summary.error}). No internal details are shown here.`
+      : baseMessage;
 
   return (
     <section aria-labelledby="result-heading" className="result-panel">
@@ -65,9 +70,15 @@ export function ResultPanel({ summary }: { summary: RunSummary }): JSX.Element {
         </div>
         <div>
           <dt>Time</dt>
-          <dd>{formatElapsed(summary.latency_ms)}</dd>
+          <dd>{formatElapsed(summary.wall_time_ms)}</dd>
         </div>
       </dl>
+      {(summary.llm_time_ms > 0 || summary.sandbox_time_ms > 0) && (
+        <p className="stats-secondary">
+          LLM time {formatElapsed(summary.llm_time_ms)} · Sandbox time{" "}
+          {formatElapsed(summary.sandbox_time_ms)}
+        </p>
+      )}
 
       <a href={traceUrl(summary.run_id)} download={`${summary.run_id}.jsonl`}>
         Download trace (JSONL)

@@ -23,7 +23,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from sandbox_analyst.agent import AgentEvent, AgentResult, AttemptRecord, TraceWriter, run_agent
+from sandbox_analyst.agent import AgentEvent, AgentResult, TraceWriter, run_agent
 from sandbox_analyst.agent import loop as agent_loop
 from sandbox_analyst.llm import LLMClient
 from sandbox_analyst.sandbox import Sandbox
@@ -73,6 +73,8 @@ class RunRecord:
     events: list[dict] = field(default_factory=list)
     result: AgentResult | None = None
     error: str | None = None
+    run_started_ts: float | None = None
+    run_finished_ts: float | None = None
     lock: threading.Lock = field(default_factory=threading.Lock)
     subscribers: list[asyncio.Queue] = field(default_factory=list)
 
@@ -109,21 +111,74 @@ def _truncate(text: str | None, limit: int) -> str | None:
     return text[:limit] + "...[truncated]"
 
 
-def summarize_attempt(a: AttemptRecord) -> dict:
-    exec_ok = None
-    timed_out = None
-    if a.exec_result is not None:
-        exec_ok = a.exec_result.error is None and not a.exec_result.timed_out
-        timed_out = a.exec_result.timed_out
+def _attempt_slot(attempts: dict[int, dict], attempt_n: int) -> dict:
+    return attempts.setdefault(
+        attempt_n,
+        {
+            "attempt": attempt_n,
+            "has_code": False,
+            "check_ok": None,
+            "n_check_violations": 0,
+            "exec_ok": None,
+            "timed_out": None,
+            "answered": False,
+            "observation": None,
+        },
+    )
+
+
+def summarize_events(events: list[dict]) -> dict:
+    """Replay recorded events into attempts/tokens/times.
+
+    This is the only source available for a run that failed before (or
+    without ever) producing an `AgentResult`, and it agrees exactly with
+    `AgentResult`'s own totals once one exists, since every attempt emits
+    exactly one `code` event and at most one `exec_result` event, and every
+    LLM call emits exactly one `llm_response` event.
+    """
+    attempts: dict[int, dict] = {}
+    prompt_tokens = 0
+    completion_tokens = 0
+    llm_time_ms = 0
+    sandbox_time_ms = 0
+
+    for event in events:
+        etype = event["type"]
+        payload = event["payload"]
+        if etype == "llm_response":
+            prompt_tokens += payload.get("prompt_tokens", 0) or 0
+            completion_tokens += payload.get("completion_tokens", 0) or 0
+            llm_time_ms += payload.get("latency_ms", 0) or 0
+        elif etype == "code":
+            _attempt_slot(attempts, event["attempt"])["has_code"] = payload.get("code") is not None
+        elif etype == "static_check":
+            slot = _attempt_slot(attempts, event["attempt"])
+            slot["check_ok"] = payload.get("ok")
+            slot["n_check_violations"] = len(payload.get("violations", []))
+        elif etype == "exec_result":
+            slot = _attempt_slot(attempts, event["attempt"])
+            duration = payload.get("duration_ms")
+            if duration:
+                sandbox_time_ms += duration
+            if payload.get("crashed") or payload.get("unavailable"):
+                slot["exec_ok"] = False
+            else:
+                slot["exec_ok"] = payload.get("error") is None and not payload.get(
+                    "timed_out", False
+                )
+                slot["timed_out"] = payload.get("timed_out", False)
+        elif etype == "answer":
+            _attempt_slot(attempts, event["attempt"])["answered"] = True
+        elif etype == "observation":
+            slot = _attempt_slot(attempts, event["attempt"])
+            slot["observation"] = _truncate(payload.get("text"), OBSERVATION_PREVIEW_CHARS)
+
     return {
-        "attempt": a.attempt,
-        "has_code": a.code is not None,
-        "check_ok": a.check_ok,
-        "n_check_violations": len(a.check_violations),
-        "exec_ok": exec_ok,
-        "timed_out": timed_out,
-        "answered": a.answer is not None,
-        "observation": _truncate(a.observation, OBSERVATION_PREVIEW_CHARS),
+        "attempts": [attempts[n] for n in sorted(attempts)],
+        "prompt_tokens": prompt_tokens,
+        "completion_tokens": completion_tokens,
+        "llm_time_ms": llm_time_ms,
+        "sandbox_time_ms": sandbox_time_ms,
     }
 
 
@@ -131,12 +186,31 @@ def chart_urls(run_id: str, result: AgentResult) -> list[str]:
     return [f"/api/runs/{run_id}/artifacts/{Path(p).name}" for p in result.images]
 
 
+def _wall_time_ms(started_ts: float | None, finished_ts: float | None) -> int:
+    if started_ts is None or finished_ts is None:
+        return 0
+    return round((finished_ts - started_ts) * 1000)
+
+
 def build_summary(record: RunRecord) -> dict:
-    """The current snapshot of a run -- complete once `record.result` is set."""
+    """The current snapshot of a run.
+
+    `attempts`/`prompt_tokens`/`completion_tokens`/`llm_time_ms`/
+    `sandbox_time_ms` are always rebuilt from `record.events` (reflecting
+    whatever ran before an unexpected failure, not just a completed
+    `AgentResult` -- see DECISIONS.md on this bug). `answers`/`explanation`/
+    `code`/`stdout_tail`/`evidence`/`chart_urls` need the richer, final
+    `AgentResult` and stay at their empty defaults until one exists.
+    """
     with record.lock:
         status = record.status
         result = record.result
         error = record.error
+        events = list(record.events)
+        started_ts = record.run_started_ts
+        finished_ts = record.run_finished_ts
+
+    live = summarize_events(events)
 
     base = {
         "run_id": record.run_id,
@@ -148,11 +222,13 @@ def build_summary(record: RunRecord) -> dict:
         "code": "",
         "stdout_tail": "",
         "evidence": [],
-        "attempts": [],
+        "attempts": live["attempts"],
         "chart_urls": [],
-        "prompt_tokens": 0,
-        "completion_tokens": 0,
-        "latency_ms": 0,
+        "prompt_tokens": live["prompt_tokens"],
+        "completion_tokens": live["completion_tokens"],
+        "wall_time_ms": _wall_time_ms(started_ts, finished_ts),
+        "llm_time_ms": live["llm_time_ms"],
+        "sandbox_time_ms": live["sandbox_time_ms"],
         "error": error,
     }
     if result is None:
@@ -168,11 +244,7 @@ def build_summary(record: RunRecord) -> dict:
                 {"name": e.name, "value": e.value, "passed": e.passed, "reason": e.reason}
                 for e in result.evidence
             ],
-            "attempts": [summarize_attempt(a) for a in result.attempts],
             "chart_urls": chart_urls(record.run_id, result),
-            "prompt_tokens": result.total_prompt_tokens,
-            "completion_tokens": result.total_completion_tokens,
-            "latency_ms": result.total_latency_ms,
         }
     )
     return base
@@ -275,6 +347,10 @@ def _execute_run(
         with record.lock:
             if record.agent_run_id is None:
                 record.agent_run_id = event.run_id
+            if event.type == "run_started":
+                record.run_started_ts = event.ts
+            elif event.type == "run_finished":
+                record.run_finished_ts = event.ts
             event_dict = _event_to_dict(record.run_id, event)
             record.events.append(event_dict)
             subscribers = list(record.subscribers)

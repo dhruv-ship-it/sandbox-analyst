@@ -105,8 +105,12 @@ prints (`run_started`, `profile`, `llm_request`, `llm_response`, `code`,
 
 ### `GET /api/runs/{run_id}`
 
-The current snapshot -- callable before the run finishes (fields are
-empty/zero until `run_agent` returns) or after:
+The current snapshot -- callable before the run finishes or after.
+`attempts`/`prompt_tokens`/`completion_tokens`/`llm_time_ms`/
+`sandbox_time_ms` reflect whatever's been recorded so far (zero before
+the first attempt's events arrive); `answers`/`explanation`/`code`/
+`stdout_tail`/`evidence`/`chart_urls` stay at their empty defaults until
+`run_agent` actually returns a result:
 
 ```json
 {
@@ -117,7 +121,8 @@ empty/zero until `run_agent` returns) or after:
   "attempts": [{"attempt": 1, "has_code": true, "check_ok": true, "n_check_violations": 0,
                 "exec_ok": true, "timed_out": false, "answered": true, "observation": null}],
   "chart_urls": ["/api/runs/.../artifacts/attempt1_0.png"],
-  "prompt_tokens": 1027, "completion_tokens": 618, "latency_ms": 1983,
+  "prompt_tokens": 1027, "completion_tokens": 618,
+  "wall_time_ms": 13021, "llm_time_ms": 1983, "sandbox_time_ms": 10344,
   "error": null
 }
 ```
@@ -127,6 +132,21 @@ status (`answered`, `failed`, `repeated_failure`, `tool_failure`,
 `budget_exceeded`, `llm_error`) or `error` (an unexpected failure
 outside `run_agent`'s own status machine). `stdout_tail` is capped at
 2000 chars. Unknown `run_id` is `404`.
+
+`wall_time_ms` is the headline time -- total wall clock from the
+`run_started` event to the `run_finished` event, which is what a visitor
+actually waited through (including sandbox cold start). `llm_time_ms`
+and `sandbox_time_ms` are secondary stats: the sum of LLM call latencies
+and the sum of sandbox exec durations, respectively -- together they're
+almost always less than `wall_time_ms` (the gaps are host-side work and,
+for the live demo, Modal's own sandbox creation/teardown overhead, which
+isn't separately broken out). `attempts`, `prompt_tokens`,
+`completion_tokens`, `llm_time_ms`, and `sandbox_time_ms` are rebuilt
+from the run's own recorded events every time this endpoint is called,
+so they already reflect whatever ran before an unexpected failure (an
+`error` status), not just a completed run -- `error` itself is the
+exception's type name only (e.g. `"FileNotFoundError"`), never its
+message.
 
 ### `GET /api/runs/{run_id}/artifacts/{name}`
 

@@ -574,6 +574,12 @@ td {
   font-weight: 600;
 }
 
+.stats-secondary {
+  color: var(--color-text-muted);
+  font-size: 0.8125rem;
+  margin: calc(-1 * var(--space-2)) 0 var(--space-3);
+}
+
 @media (max-width: 480px) {
   .app-header {
     flex-direction: column;
