@@ -422,6 +422,7 @@ def test_build_manifest_fields():
     assert manifest.split == "dev"
     assert manifest.git_sha == "abc123"
     assert manifest.prompt_version == PROMPT_VERSION
+    assert manifest.prompt_version == settings.sa_prompt_version
     assert manifest.provider == "nim"
     assert manifest.model == "openai/gpt-oss-20b"
     assert manifest.temperature == settings.llm_temperature
@@ -435,6 +436,14 @@ def test_build_manifest_fields():
     assert manifest.run_timeout_s == settings.run_timeout_s
     assert manifest.token_budget == 1_500_000
     assert manifest.date
+
+
+def test_build_manifest_reflects_a_pinned_prompt_version():
+    settings = _settings(sa_prompt_version="v1")
+    manifest = build_manifest(
+        run_name="r1", split="dev", settings=settings, concurrency=1, token_budget=100, git_sha="x"
+    )
+    assert manifest.prompt_version == "v1"
 
 
 def test_write_manifest_creates_a_real_json_file(tmp_path):

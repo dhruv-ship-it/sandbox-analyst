@@ -33,6 +33,57 @@ def test_code_system_prompt_mentions_untrusted_preview():
     assert "untrusted" in prompt.lower()
 
 
+# ---- v1/v2 prompt selection (D-095) ----
+
+
+def test_code_system_prompt_default_is_v2():
+    assert prompts.code_system_prompt("x.csv") == prompts.code_system_prompt("x.csv", "v2")
+
+
+def test_code_system_prompt_v1_matches_the_original_dev_v1_wording():
+    prompt = prompts.code_system_prompt("titanic.csv", "v1")
+    assert "- The data file is at /work/data/titanic.csv.\n" in prompt
+    assert "character-for-character" not in prompt
+
+
+def test_code_system_prompt_v2_gives_a_copy_paste_read_csv_line():
+    prompt = prompts.code_system_prompt("titanic.csv", "v2")
+    assert 'df = pd.read_csv(r"/work/data/titanic.csv")' in prompt
+    assert "character-for-character" in prompt
+
+
+def test_code_system_prompt_v2_warns_against_guessing_category_values():
+    prompt = prompts.code_system_prompt("x.csv", "v2")
+    assert "exact values shown in the DATA PREVIEW" in prompt
+
+
+def test_code_system_prompt_v2_names_sample_statistics_and_library_functions():
+    prompt = prompts.code_system_prompt("x.csv", "v2")
+    assert "ddof=1" in prompt
+    assert ".skew()" in prompt
+
+
+def test_code_system_prompt_v2_asks_for_a_fixed_random_state():
+    prompt = prompts.code_system_prompt("x.csv", "v2")
+    assert "random_state" in prompt
+
+
+def test_answer_system_prompt_default_is_v2():
+    assert prompts.answer_system_prompt() == prompts.answer_system_prompt("v2")
+    assert prompts.answer_system_prompt("v2") == prompts.ANSWER_SYSTEM_PROMPT
+
+
+def test_answer_system_prompt_v1_matches_the_original_dev_v1_wording():
+    prompt = prompts.answer_system_prompt("v1")
+    assert "bare name" not in prompt
+
+
+def test_answer_system_prompt_v2_explains_the_bare_name_rule():
+    prompt = prompts.answer_system_prompt("v2")
+    assert "bare name" in prompt
+    assert "foo[hint]" in prompt
+
+
 # ---- build_user_message ----
 
 
@@ -181,7 +232,11 @@ def test_no_message_ever_reveals_attempt_count():
 
     messages = [
         prompts.code_system_prompt("data.csv"),
+        prompts.code_system_prompt("data.csv", "v1"),
+        prompts.code_system_prompt("data.csv", "v2"),
         prompts.ANSWER_SYSTEM_PROMPT,
+        prompts.answer_system_prompt("v1"),
+        prompts.answer_system_prompt("v2"),
         prompts.build_user_message("PREVIEW", "q?", constraints="c", answer_format="@x[value]"),
         prompts.build_user_message("PREVIEW", "q?"),
         prompts.build_repair_message("print(1)", prompts.observation_no_code_block()),

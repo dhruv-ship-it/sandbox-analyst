@@ -12,6 +12,14 @@ to the `@name[...]` placeholders in the question's required answer
 format. `AnswerItem.name` always strips whitespace and any leading "@";
 `parse_final_answer` additionally re-cases a name to match the format's
 own placeholder spelling, case-insensitively, when a format is given.
+
+`AnswerItem.name` also strips a trailing `[...]` suffix (D-095): the
+model sometimes copies the whole `@name[hint]` placeholder -- or even
+`@name[<the value it just computed>]` -- into the JSON `name` field
+instead of the bare name. Every real answer-format placeholder is a
+bare word-character identifier with no brackets of its own, so a trailing
+bracket group on a submitted name is always contamination, never
+legitimate content -- stripping it is safe unconditionally.
 """
 
 import json
@@ -22,6 +30,7 @@ from pydantic import BaseModel, Field, ValidationError, field_validator
 MAX_EXPLANATION_CHARS = 600
 
 _FORMAT_PLACEHOLDER_RE = re.compile(r"@(\w+)\[")
+_TRAILING_BRACKET_RE = re.compile(r"^(.+?)\[[^\[\]]*\]$")
 
 
 class AnswerItem(BaseModel):
@@ -31,7 +40,11 @@ class AnswerItem(BaseModel):
     @field_validator("name")
     @classmethod
     def _normalize_name(cls, v: str) -> str:
-        return v.strip().lstrip("@").strip()
+        name = v.strip().lstrip("@").strip()
+        match = _TRAILING_BRACKET_RE.fullmatch(name)
+        if match:
+            name = match.group(1).strip()
+        return name
 
 
 class FinalAnswer(BaseModel):

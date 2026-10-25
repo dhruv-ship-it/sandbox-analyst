@@ -13,6 +13,12 @@ def test_defaults():
     assert s.max_upload_mb == 25
     assert s.usd_per_core_second == 0.00003942
     assert s.usd_per_gib_second == 0.00000667
+    assert s.sa_prompt_version == "v2"
+
+
+def test_prompt_version_can_be_pinned_to_v1():
+    s = Settings(_env_file=None, sa_prompt_version="v1")
+    assert s.sa_prompt_version == "v1"
 
 
 def test_extra_env_keys_are_ignored():

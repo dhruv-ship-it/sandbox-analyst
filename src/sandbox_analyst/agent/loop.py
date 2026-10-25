@@ -247,9 +247,11 @@ def _run_answer_step(
     emitter: EventEmitter,
     attempt_n: int,
     state: _RunState,
+    prompt_version: str,
 ) -> FinalAnswer | None:
+    answer_system = prompts.answer_system_prompt(prompt_version)
     answer_messages = [
-        Message("system", prompts.ANSWER_SYSTEM_PROMPT),
+        Message("system", answer_system),
         Message(
             "user",
             prompts.build_answer_message(
@@ -265,7 +267,7 @@ def _run_answer_step(
         return parse_final_answer(response.text, answer_format)
     except AnswerParseError as exc:
         retry_messages = [
-            Message("system", prompts.ANSWER_SYSTEM_PROMPT),
+            Message("system", answer_system),
             Message("user", prompts.build_answer_retry_message(response.text, str(exc))),
         ]
         retry_response = _call_llm(llm, retry_messages, emitter, attempt_n)
@@ -292,6 +294,7 @@ def _run_attempts(
     clock: Callable[[], float],
     start_time: float,
     state: _RunState,
+    prompt_version: str,
 ) -> NoReturn:
     previous_code: str | None = None
     observation: str | None = None
@@ -309,7 +312,7 @@ def _run_attempts(
             user_text = prompts.build_repair_message(previous_code, observation or "")
 
         messages = [
-            Message("system", prompts.code_system_prompt(file_name)),
+            Message("system", prompts.code_system_prompt(file_name, prompt_version)),
             Message("user", user_text),
         ]
         response = _call_llm(llm, messages, emitter, attempt_n)
@@ -456,6 +459,7 @@ def _run_attempts(
             emitter,
             attempt_n,
             state,
+            prompt_version,
         )
 
         if final is None:
@@ -539,12 +543,13 @@ def run_agent(
     run_id = new_run_id()
     emitter = EventEmitter(run_id, on_event)
     start_time = clock()
+    prompt_version = settings.sa_prompt_version
 
     emitter.emit(
         "run_started",
         0,
         {
-            "prompt_version": prompts.PROMPT_VERSION,
+            "prompt_version": prompt_version,
             "file_name": file_name,
             "question": question,
             "constraints": constraints,
@@ -580,6 +585,7 @@ def run_agent(
                 clock=clock,
                 start_time=start_time,
                 state=state,
+                prompt_version=prompt_version,
             )
         except _StopRun as exc:
             stop = exc

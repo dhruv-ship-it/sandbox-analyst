@@ -26,7 +26,6 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from sandbox_analyst.agent import AgentEvent, AgentResult, TraceWriter, run_agent
-from sandbox_analyst.agent.prompts import PROMPT_VERSION
 from sandbox_analyst.bench.dabench import Question, load_questions
 from sandbox_analyst.bench.download import PINNED_REVISION
 from sandbox_analyst.bench.split import DEFAULT_QUESTIONS_PATH, DEFAULT_SPLIT_PATH, GitRunner
@@ -339,7 +338,7 @@ def build_manifest(
         split=split,
         date=datetime.now(UTC).isoformat(),
         git_sha=git_sha if git_sha is not None else _git_sha(),
-        prompt_version=PROMPT_VERSION,
+        prompt_version=settings.sa_prompt_version,
         provider=settings.sa_llm_provider,
         model=settings.sa_llm_model or "",
         temperature=settings.llm_temperature,

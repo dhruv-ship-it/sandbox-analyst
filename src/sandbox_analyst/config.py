@@ -33,6 +33,10 @@ class Settings(BaseSettings):
     nim_api_key: SecretStr | None = None
     groq_api_key: SecretStr | None = None
 
+    # Which prompt-text version agent/prompts.py builds (see D-095). Default
+    # is the latest ("v2"); "v1" reproduces the exact prompts dev-v1-r1/r2 used.
+    sa_prompt_version: Literal["v1", "v2"] = "v2"
+
     # LLM sampling defaults, fixed for every headline number (see D-036).
     llm_temperature: float = 1.0
     llm_top_p: float = 1.0

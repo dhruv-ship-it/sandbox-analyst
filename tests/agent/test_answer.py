@@ -148,6 +148,50 @@ def test_parse_final_answer_normalizes_a_leading_at_in_the_name():
     assert final.answers[0].name == "mean_fare"
 
 
+# ---- trailing-bracket stripping at the answer boundary (D-095) ----
+#
+# The model sometimes copies a format placeholder's own hint, or even its own
+# computed value, into the "name" field instead of the bare name -- every
+# real placeholder is a bare \w+ identifier, so a trailing bracket group on a
+# submitted name is always contamination, never legitimate content.
+
+
+def test_answer_item_strips_a_format_hint_suffix():
+    assert AnswerItem(name="correlation_coefficient[r_value]", value="-0.04").name == (
+        "correlation_coefficient"
+    )
+
+
+def test_answer_item_strips_an_echoed_value_suffix():
+    assert AnswerItem(name="median_age[31.5]", value="31.5").name == "median_age"
+
+
+def test_answer_item_strips_a_repeated_placeholder_suffix():
+    assert AnswerItem(name="child_count[Child]", value="70").name == "child_count"
+
+
+def test_answer_item_strips_at_and_bracket_suffix_together():
+    assert AnswerItem(name="@mean_fare[mean]", value="34.65").name == "mean_fare"
+
+
+def test_answer_item_name_with_no_bracket_is_unaffected():
+    assert AnswerItem(name="mean_fare", value="1").name == "mean_fare"
+
+
+def test_answer_item_does_not_strip_an_unmatched_leading_bracket():
+    # Not a trailing-bracket suffix on a base name -- left as-is.
+    assert AnswerItem(name="[weird]", value="1").name == "[weird]"
+
+
+def test_parse_final_answer_strips_a_format_hint_suffix_from_the_name():
+    raw = (
+        '{"answers": [{"name": "correlation_coefficient[r_value]", "value": "-0.04"}], '
+        '"explanation": "ok"}'
+    )
+    final = parse_final_answer(raw)
+    assert final.answers[0].name == "correlation_coefficient"
+
+
 # ---- extract_format_placeholders ----
 
 

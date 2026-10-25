@@ -160,3 +160,38 @@ def test_reason_is_present_for_both_pass_and_fail():
     assert results[0].reason
     results = check_evidence([AnswerItem(name="a", value="999")], "a = 1\n")
     assert results[0].reason
+
+
+# ---- explicit empty-collection literals (D-095) ----
+#
+# Unwrapping "[]" strips both brackets and leaves an empty string, which the
+# generic path rejects as "the answer value is empty" -- so a genuinely
+# correct empty-list answer could never be evidenced without this special
+# case, and the agent would burn its whole repair budget resubmitting it.
+
+
+def test_empty_list_literal_passes_when_stdout_contains_it():
+    result = _check_one("outlier_list", "[]", "outlier_list = []\n")
+    assert result.passed
+
+
+def test_empty_tuple_literal_passes_when_stdout_contains_it():
+    result = _check_one("outlier_tuple", "()", "outlier_tuple = ()\n")
+    assert result.passed
+
+
+def test_empty_list_literal_fails_when_stdout_never_prints_it():
+    result = _check_one("outlier_list", "[]", "no outliers were found\n")
+    assert not result.passed
+    assert "no literal" in result.reason
+
+
+def test_a_truly_empty_string_value_still_fails():
+    result = _check_one("x", "", "x = 1\n")
+    assert not result.passed
+    assert "empty" in result.reason
+
+
+def test_a_non_empty_bracketed_list_is_unaffected_by_the_empty_collection_check():
+    result = _check_one("ages", "[21, 34]", "21 ... 34\n")
+    assert result.passed

@@ -546,3 +546,48 @@ def test_no_message_ever_reveals_attempt_count_across_a_full_run():
             lowered = message.content.lower()
             for forbidden in FORBIDDEN_SUBSTRINGS:
                 assert forbidden not in lowered, f"found {forbidden!r} in: {message.content!r}"
+
+
+# ---- settings.sa_prompt_version selects which prompt text is actually sent (D-095) ----
+
+
+def test_default_settings_send_the_v2_code_system_prompt():
+    llm = FakeLLM([_code("print('x =', 1)"), _answer("x", "1")])
+    sandbox = FakeSandbox([_ok("x = 1\n")])
+    run_agent(CSV, "data.csv", "q?", llm=llm, sandbox_factory=lambda: sandbox, settings=_settings())
+    first_system_message = llm.calls[0]["messages"][0].content
+    assert "character-for-character" in first_system_message
+
+
+def test_pinning_v1_sends_the_original_code_and_answer_system_prompts():
+    llm = FakeLLM([_code("print('x =', 1)"), _answer("x", "1")])
+    sandbox = FakeSandbox([_ok("x = 1\n")])
+    run_agent(
+        CSV,
+        "data.csv",
+        "q?",
+        llm=llm,
+        sandbox_factory=lambda: sandbox,
+        settings=_settings(sa_prompt_version="v1"),
+    )
+    code_system_message = llm.calls[0]["messages"][0].content
+    answer_system_message = llm.calls[1]["messages"][0].content
+    assert "character-for-character" not in code_system_message
+    assert "bare name" not in answer_system_message
+
+
+def test_run_started_event_reports_the_configured_prompt_version():
+    events = []
+    llm = FakeLLM([_code("print('x =', 1)"), _answer("x", "1")])
+    sandbox = FakeSandbox([_ok("x = 1\n")])
+    run_agent(
+        CSV,
+        "data.csv",
+        "q?",
+        llm=llm,
+        sandbox_factory=lambda: sandbox,
+        settings=_settings(sa_prompt_version="v1"),
+        on_event=events.append,
+    )
+    run_started = next(e for e in events if e.type == "run_started")
+    assert run_started.payload["prompt_version"] == "v1"

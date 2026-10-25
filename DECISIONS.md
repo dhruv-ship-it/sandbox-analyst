@@ -2524,3 +2524,156 @@ being read as a stand-in for the held-out result they're not. Guessing
 an arXiv URL for the InfiAgent-DABench paper from memory for the
 Credits link -- rejected in favor of the GitHub link this repo already
 uses and has verified.
+
+## D-095 — Prompt v2: versioned, selectable prompt text; v1 stays reproducible
+
+**Date:** 2026-10-25
+
+**Decision:** `agent/prompts.py` keeps the exact v1 wording of
+`code_system_prompt` and `answer_system_prompt` as private, byte-for-byte
+preserved template functions, alongside new v2 functions. Both public
+functions take an explicit `version` argument (default `PROMPT_VERSION`,
+now `"v2"`); `ANSWER_SYSTEM_PROMPT` stays a plain constant equal to the
+*default* version's text, for the handful of existing callers/tests that
+don't need to vary it. `Settings.sa_prompt_version: Literal["v1", "v2"]`
+(default `"v2"`) is threaded through `run_agent` -> `_run_attempts` /
+`_run_answer_step`, and recorded in every run's `run_started` event and
+`bench.harness.Manifest` (which now reads `settings.sa_prompt_version`
+directly instead of importing a hardcoded module constant).
+
+**Why:** dev-v1-r1/r2's reported numbers (`docs/results-dev.md`) must stay
+reproducible against the exact prompts that produced them -- the task
+prompt for this session says so explicitly ("keep v1 reproducible"). A
+config-selected version, rather than two entirely separate code paths, is
+the smallest change that gives both properties (v1 unchanged, v2 the new
+default) while keeping every call site's existing signature working
+unchanged for callers that don't pass a version.
+
+**Alternatives rejected:** Overwriting the v1 text in place (no
+versioning) -- rejected, it would make dev-v1-r1/r2 unreproducible,
+which the task explicitly asks to avoid. A separate `prompts_v1.py` /
+`prompts_v2.py` module pair -- rejected, duplicates every non-prompt-text
+helper (`build_user_message`, `build_repair_message`, the observation
+builders, `build_answer_message`, `build_answer_retry_message`), none of
+which changed between versions.
+
+## D-096 — Prompt v2 fix: literal-value fidelity (file paths and categorical values)
+
+**Date:** 2026-10-25
+
+**Decision:** `code_system_prompt`'s v2 text replaces the plain "the data
+file is at X" sentence with a literal, copy-paste `df = pd.read_csv(r"X")`
+line, explicitly forbids guessing an alternate file/folder name, and
+states that a `FileNotFoundError` on that exact path means "re-copy it,"
+not "try another name." A second new line asks for the same literal
+fidelity when filtering/comparing a text column, pointing at the DATA
+PREVIEW's own example values rather than a guessed, differently-styled
+label.
+
+**Why:** `docs/failure-analysis-v1.md`'s root cause 1 -- 4 distinct dev
+ids (64, 66, 69, 214) across both runs, all the model substituting a
+guessed "familiar-looking" literal for the exact one it was given or
+shown (a split, reformatted file path; a differently-capitalized category
+label), each time either failing loudly (`FileNotFoundError`, followed by
+a multi-attempt guessing spiral that itself tends to trip the checker) or
+silently (an empty filter, producing `nan`).
+
+**Alternatives rejected:** Leaving the instruction as prose only, without
+a literal line to copy -- the v1 text already *stated* the exact path in
+prose ("the data file is at X") and the model still didn't reliably copy
+it; a literal code line removes the step of extracting a path from a
+sentence. Hardcoding a workaround for this specific CSV's name (e.g.
+normalizing file names on upload) -- rejected as the kind of dev-question-
+specific fix rule 6 forbids; the fix targets the general failure mode
+(substituting a guess for a literal), not this one file name.
+
+## D-097 — Prompt v2 fix: answer-name bracket contamination
+
+**Date:** 2026-10-25
+
+**Decision:** `answer_system_prompt`'s v2 text adds an explicit rule with
+a worked contrast: the JSON answer's `"name"` is the bare name only --
+never `"foo[hint]"` or `"foo[<the value you computed>]"`. Independently of
+prompt version, `AnswerItem`'s name normalization (`answer.py`) now also
+strips a trailing `[...]` suffix from any submitted name.
+
+**Why:** `docs/failure-analysis-v1.md`'s root cause 2 -- by far the most
+common dev-v1 failure pattern, 11 distinct dev ids across both runs (34,
+39, 58, 66, 176, 210, 282, 523, 721, 722, 724). The grader only scores a
+name that exactly matches the label's name, so this always graded as
+wrong even when the computed value itself was correct. Fixing it in two
+places is deliberate: the prompt fix reduces how often it happens, and
+the parsing fix (version-independent, so it also protects v1 and the
+held-out test run) makes it harmless on the rare slip that still gets
+through -- every real placeholder name is a bare word-identifier with no
+brackets of its own, so stripping a trailing bracket group can never
+remove legitimate content.
+
+**Alternatives rejected:** Parsing-fix only, no prompt change -- rejected,
+a model that's being told the wrong shape in no uncertain terms is a
+cheaper fix than relying solely on cleanup after the fact. Prompt-fix
+only, no parsing fix -- rejected, D-054's own precedent (case-
+normalization at this same boundary) already establishes that defensive
+normalization at the answer boundary is worth doing independently of
+prompt wording.
+
+## D-098 — Evidence-checker fix: an explicit empty-collection literal is checked as a literal substring
+
+**Date:** 2026-10-25
+
+**Decision:** `check_evidence`'s `_check_value` (via `evidence.py`) now
+detects an explicit empty-collection literal (`"[]"` or `"()"`, nothing
+but whitespace between the brackets) before the generic bracket-unwrap
+path runs, and checks it as a literal substring of stdout instead.
+Version-independent -- this is an answer-parsing/evidence fix, not a
+prompt-text change, so it applies regardless of `sa_prompt_version`.
+
+**Why:** `docs/failure-analysis-v1.md`'s root cause 3 -- id 273,
+reproducibly in both runs. Unwrapping `"[]"` strips both brackets and
+leaves an empty string, which the generic path then rejected outright as
+"the answer value is empty," so a genuinely correct empty-list answer
+could never be evidenced; the run burned its entire repair budget
+(`budget_exceeded`) resubmitting the same correct code and answer. This
+is a clear general bug (any question whose correct answer is an empty
+list/tuple hits it, regardless of dataset), not something that needed a
+3-occurrence count to justify fixing per rule 6.
+
+**Alternatives rejected:** Treating any bracket pair with empty contents
+as automatically passing (no stdout check at all) -- rejected, that would
+let the model claim an empty list without actually printing one, weakening
+the grounding guarantee evidence-checking exists for. Normalizing internal
+whitespace inside the brackets before the literal-substring check (so
+`"[ ]"` in stdout would also match) -- not implemented; no observed dev
+case needs it, and `print([])`'s actual Python output is exactly `"[]"`
+with no internal space.
+
+## D-099 — Prompt v2 fix: sample statistics, standard library functions, and seeded randomness
+
+**Date:** 2026-10-25
+
+**Decision:** `code_system_prompt`'s v2 text adds two new lines: (1) use
+the library's own function for named statistics (pandas
+`.std()`/`.var()`/`.skew()`/`.corr()`/etc., or `scipy.stats`) rather than
+a hand-derived formula, and default to SAMPLE statistics (`ddof=1`,
+pandas' own default) unless the question explicitly asks for a population
+statistic; (2) pass a fixed `random_state` on every method with inherent
+randomness (not just `train_test_split` itself).
+
+**Why:** `docs/failure-analysis-v1.md`'s root causes 4-6, three distinct
+dev ids: id 255 (a `ddof=0` vs `ddof=1` run disagreed on standard
+deviation, and only the `ddof=1` run graded correct), id 516 (both runs
+hand-derived skewness from `(mean - median) / std` instead of a real
+skewness function, and both graded wrong), id 521 (a classifier's own
+randomness, not just the train/test split, was left unseeded, and the two
+runs' accuracy disagreed by a point). All three are well-established,
+textbook statistics/ML conventions independent of this project's
+specific datasets, so a general instruction is the right level to fix
+them at, rather than anything dataset-specific.
+
+**Alternatives rejected:** Naming a specific "correct" skewness/kurtosis
+formula in the prompt -- rejected; the actual convention DABench's labels
+were generated with isn't known, and asserting one without evidence would
+risk being a dev-specific guess dressed up as a general rule. Pointing at
+pandas specifically for every statistic (rather than "the library's own
+function") -- rejected as narrower than necessary; `scipy.stats` is
+equally standard and already on the import allowlist.

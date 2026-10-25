@@ -7,6 +7,16 @@ DECISIONS.md): a comma inside a single thousands-separated number is
 disambiguated from a comma-separated list by trying a full-string number
 parse first, but a list whose own elements use thousands separators
 (e.g. "1,234, 5,678") is still split on every comma.
+
+An explicit empty-collection literal ("[]" or "()") is checked against
+stdout as a literal substring rather than through the generic bracket-
+unwrap path (D-095): unwrapping "[]" strips both brackets and leaves an
+empty string, which the generic path then rejects outright as "the
+answer value is empty" -- so a genuinely correct empty-list answer could
+never be evidenced, and the agent would burn its whole repair budget
+resubmitting it. Requiring the literal "[]"/"()" text in stdout still
+means the script had to actually print the empty collection, not just
+claim one.
 """
 
 import re
@@ -62,6 +72,10 @@ def _unwrap_brackets(value: str) -> str:
     return value
 
 
+def _is_empty_collection_literal(value: str) -> bool:
+    return len(value) >= 2 and value[0] in "[(" and value[-1] in "])" and not value[1:-1].strip()
+
+
 def _check_number(answer_str: str, numbers_in_stdout: list[float]) -> tuple[bool, str]:
     expected = float(_strip_thousands(answer_str))
     decimals = _decimal_places(answer_str)
@@ -87,8 +101,17 @@ def _check_string(answer_str: str, stdout: str) -> tuple[bool, str]:
     return False, "not found as a substring of stdout"
 
 
+def _check_empty_collection(literal: str, stdout: str) -> tuple[bool, str]:
+    if literal in _normalize_whitespace(stdout):
+        return True, f"matched the literal empty collection {literal!r} in stdout"
+    return False, f"no literal {literal!r} found in stdout"
+
+
 def _check_value(value: str, stdout: str, numbers_in_stdout: list[float]) -> tuple[bool, str]:
-    unwrapped = _unwrap_brackets(value.strip())
+    stripped = value.strip()
+    if _is_empty_collection_literal(stripped):
+        return _check_empty_collection(stripped, stdout)
+    unwrapped = _unwrap_brackets(stripped)
     if not unwrapped:
         return False, "the answer value is empty"
     if _FULL_NUMBER_RE.fullmatch(unwrapped):
