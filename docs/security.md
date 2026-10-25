@@ -33,8 +33,8 @@ checker in front of it, including code that would fail the checker
 |---|---|
 | `SYNTAX` | Code that doesn't parse at all (reported with a line number so the model can repair it) |
 | `IMPORT_NOT_ALLOWED` | Any import whose top-level root isn't on the allowlist (`policy.ALLOWED_IMPORT_ROOTS`); all relative imports |
-| `FORBIDDEN_CALL` | Bare references (not just calls) to `eval`, `exec`, `compile`, `__import__`, `getattr`, `setattr`, `delattr`, `globals`, `locals`, `vars`, `breakpoint`, `input`, `help`, `exit`, `quit` |
-| `DUNDER_ACCESS` | Any name or attribute of the form `__x__` |
+| `FORBIDDEN_CALL` | Bare references (not just calls) to `eval`, `exec`, `compile`, `__import__`, `getattr`, `setattr`, `delattr`, `globals`, `locals`, `vars`, `breakpoint`, `input`, `help` |
+| `DUNDER_ACCESS` | Any name or attribute of the form `__x__`, except the bare name `__name__` |
 | `FORBIDDEN_ATTRIBUTE` | Denylisted names (`os`, `sys`, `subprocess`, `socket`, `shutil`, `ctypes`, `builtins`, `importlib`, `system`, `popen`, `remove`, `rmtree`, ... — full list in `policy.py`) anywhere in a name or attribute chain |
 | `UNSAFE_WRITE` | `open()` in a write mode, or a known writer method (`to_csv`, `savefig`, ...), unless called with no path at all or a literal path inside `/work` |
 | `PICKLE` | `read_pickle`; `allow_pickle=True` (or a non-literal value for it) |
@@ -101,3 +101,50 @@ succeeded, would let code do anything the sandbox doesn't already
 allow a cooperative script to do (write inside its own ephemeral
 filesystem, introspect its own objects). They're checker gaps, not
 sandbox escapes.
+
+## Checker false-positive review (P3, D-100)
+
+Every checker-blocked attempt from the dev-v1-r1/dev-v1-r2 evaluation
+runs (6 total, out of 167 attempts across both runs) was reviewed by hand
+against its actual code -- full write-up with code and per-attempt
+reasoning in `runs/review/checker_blocks.md` (gitignored; **this review
+should be checked by hand**, not just trusted from the aggregate numbers
+below).
+
+| | count |
+|---|---|
+| TRUE POSITIVE (genuinely disallowed) | 1 |
+| FALSE POSITIVE (benign code wrongly blocked) | 5 |
+
+- **Checker false-positive rate** (benign attempts blocked / all dev
+  attempts): 5 / 167 = **0.030**.
+- **Share of blocks that were false positives**: 5 / 6 = **0.833**.
+
+The one true positive was a plain `import os` (to call `os.path.join`,
+itself benign, but `os` as a whole is correctly denylisted -- D-010);
+the model didn't need it, confirmed by a later attempt on the same
+question building the same path with plain string formatting.
+
+All 5 false positives resolved to exactly two root causes, both fixed
+narrowly (D-100):
+
+1. **`exit()`/`quit()` as a plain early-return guard** (3 of 6 blocks).
+   Every occurrence was `exit()` or `exit(1)` right after an
+   already-printed message -- no arguments carrying code, no
+   introspection. `exit`/`quit` are removed from `FORBIDDEN_CALL_NAMES`
+   outright; neither one has an unsafe variant to guard against (they
+   take no code to execute, only an optional status code/message).
+2. **`if __name__ == "__main__":`** (2 of 6 blocks). One of the most
+   common idioms in real Python; the bare `__name__` module-identity
+   string grants no reflection capability (it isn't on the
+   `.__class__.__bases__...`-style bypass chain documented above). Only
+   the bare NAME `__name__` is now exempted from `DUNDER_ACCESS` --
+   `.__name__` as an *attribute* on some other object stays blocked, and
+   every other dunder (name or attribute) is unaffected. This keeps the
+   fix exactly as narrow as the observed false positive, rather than
+   opening a general dunder exemption.
+
+Neither fix touches the sandbox's own security boundary (D-009): both
+false-positive patterns were already fully safe even before the checker
+caught them -- the checker was never the thing making them safe, the
+gVisor sandbox was.

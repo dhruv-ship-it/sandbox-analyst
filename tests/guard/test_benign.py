@@ -171,6 +171,42 @@ BENIGN_CASES: list[tuple[str, str]] = [
         "df = pd.DataFrame({'g': ['a', 'b', 'a']})\n"
         "df.groupby('g').size().reset_index(name='count')\n",
     ),
+    # Regression cases from the P3 checker-block false-positive review
+    # (runs/review/checker_blocks.md, D-100): `exit`/`quit` early-return
+    # guards and the `if __name__ == "__main__":` idiom are benign.
+    (
+        "exit_as_early_return_guard",
+        "import pandas as pd\n"
+        "df = pd.DataFrame({'a': []})\n"
+        "if df.empty:\n"
+        "    print('no data')\n"
+        "    exit()\n",
+    ),
+    (
+        "exit_with_status_code",
+        "import pandas as pd\n"
+        "df = pd.DataFrame({'a': []})\n"
+        "if df.empty:\n"
+        "    print('no data')\n"
+        "    exit(1)\n",
+    ),
+    (
+        "quit_as_early_return_guard",
+        "import pandas as pd\n"
+        "df = pd.DataFrame({'a': []})\n"
+        "if df.empty:\n"
+        "    print('no data')\n"
+        "    quit()\n",
+    ),
+    (
+        "main_guard_idiom",
+        "import pandas as pd\n\n"
+        "def main():\n"
+        "    df = pd.DataFrame({'a': [1, 2, 3]})\n"
+        "    print(df['a'].mean())\n\n"
+        'if __name__ == "__main__":\n'
+        "    main()\n",
+    ),
 ]
 
 

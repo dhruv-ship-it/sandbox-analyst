@@ -29,6 +29,13 @@ ALLOWED_IMPORT_ROOTS = frozenset(
 # Bare names that are never allowed to be referenced (called or merely
 # aliased), because each one is a generic route to dynamic execution or
 # reflection that would let code route around every other rule here.
+#
+# `exit`/`quit` were removed here after the P3 checker-block review (D-100):
+# both only ever appeared as a plain early-return guard after an
+# already-printed message (`exit()`/`exit(1)`), raising `SystemExit`, which
+# `sandbox/runner.py` already treats as a normal end of script (D-028) --
+# neither takes code to run nor exposes any introspection, so they don't
+# belong in a "dynamic execution/reflection" denylist at all.
 FORBIDDEN_CALL_NAMES = frozenset(
     {
         "eval",
@@ -44,10 +51,17 @@ FORBIDDEN_CALL_NAMES = frozenset(
         "breakpoint",
         "input",
         "help",
-        "exit",
-        "quit",
     }
 )
+
+# A dunder NAME (not attribute) exempted from DUNDER_ACCESS -- deliberately
+# narrow (D-100): `__name__` alone is a read-only module-identity string
+# with no reflection capability (it's not on the D-033 bypass chain, e.g.
+# `.__class__.__bases__...`), and `if __name__ == "__main__":` is one of
+# the most common idioms in real Python. `.__name__` as an ATTRIBUTE is
+# NOT exempted -- no false positive was observed for that form, so widening
+# the exemption to it would be an unjustified, un-narrow change.
+ALLOWED_DUNDER_NAMES = frozenset({"__name__"})
 
 # Names that are blocked anywhere they appear as a bare name or as any
 # component of an attribute chain (e.g. `pd.io.common.os.system` is

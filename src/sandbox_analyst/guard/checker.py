@@ -153,7 +153,11 @@ def _check_forbidden_call(node: ast.AST) -> list[Violation]:
 
 
 def _check_dunder(node: ast.AST) -> list[Violation]:
-    if isinstance(node, ast.Name) and _is_dunder(node.id):
+    if (
+        isinstance(node, ast.Name)
+        and _is_dunder(node.id)
+        and node.id not in policy.ALLOWED_DUNDER_NAMES
+    ):
         return [
             Violation(
                 "DUNDER_ACCESS",

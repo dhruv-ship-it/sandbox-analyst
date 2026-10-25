@@ -2677,3 +2677,57 @@ risk being a dev-specific guess dressed up as a general rule. Pointing at
 pandas specifically for every statistic (rather than "the library's own
 function") -- rejected as narrower than necessary; `scipy.stats` is
 equally standard and already on the import allowlist.
+
+## D-100 — Checker false-positive fixes: `exit`/`quit` removed outright; `__name__` exempted only as a bare name
+
+**Date:** 2026-10-25
+
+**Decision:** Reviewed every one of the 6 checker-blocked attempts across
+dev-v1-r1/r2 by hand (`runs/review/checker_blocks.md`, gitignored --
+"PLEASE REVIEW"), code and violations included. Classified 1 TRUE
+POSITIVE (`import os`, D-010's denylist working as intended) and 5 FALSE
+POSITIVE, all resolving to two patterns: `exit()`/`quit()` used as a
+plain early-return guard (3 blocks), and `if __name__ == "__main__":`
+(2 blocks). Fixed both narrowly: removed `exit`/`quit` from
+`FORBIDDEN_CALL_NAMES` entirely; added `policy.ALLOWED_DUNDER_NAMES =
+{"__name__"}`, checked only against the bare-Name form in
+`_check_dunder` (the Attribute form, `.__name__`, is untouched and still
+blocked).
+
+**False-positive-rate definition:** benign (false-positive) attempts
+blocked, divided by all dev attempts across both runs (167) = **0.030**.
+Denominator is attempts, not questions or runs, because the checker acts
+per attempt -- a question can have several attempts and at most one of
+them blocked. Separately, the *share of blocks that were false
+positives* (5/6 = 0.833) answers a different question ("when the checker
+does fire, how often is it wrong") and is reported alongside, not instead
+of, the false-positive rate.
+
+**Why:** `exit`/`quit` take no code to execute and carry no introspection
+capability -- there is no unsafe variant of calling them to guard
+against, unlike every other name still on `FORBIDDEN_CALL_NAMES`
+(`eval`, `getattr`, `__import__`, ...), each of which *does* have a
+dangerous form. `__name__` alone is a read-only module-identity string,
+not a step on the `.__class__.__bases__[0].__subclasses__()`-style
+bypass chain this project already documents (D-033) -- exempting it adds
+no capability a cooperative script doesn't already have, while `if
+__name__ == "__main__":` is common enough that blocking it meant a
+guaranteed extra repair round-trip on any script that used it.
+
+**Why the `__name__` fix stays attribute-exempt-free:** no false positive
+was observed for `.__name__` as an attribute (e.g. `some_func.__name__`,
+`type(e).__name__`) -- only the bare module-global form actually
+appeared in the dev traces. Widening the exemption to the attribute form
+on spec, without an observed false positive motivating it, would be
+exactly the kind of "fix more than the evidence asks for" this task's
+own instructions (smallest change that fixes the false positive) warn
+against.
+
+**Alternatives rejected:** Allowing `exit`/`quit` only with zero
+arguments (treating `exit(1)` as still unsafe) -- rejected; an exit code
+is not executable content, and 2 of the 3 observed false positives used
+`exit(1)`, so a zero-arg-only allowance wouldn't have even fixed what was
+found. Exempting every dunder of the form `__x__` when `x` is a known
+"safe" set beyond just `__name__` (e.g. also `__doc__`) -- rejected as
+unneeded generality; no false positive motivated it, and D-010's own
+precedent is "grow only on false-positive evidence from real dev tasks."

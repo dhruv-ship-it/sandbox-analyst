@@ -63,8 +63,6 @@ MALICIOUS_CASES: list[tuple[str, str, str]] = [
     ("breakpoint_call", "breakpoint()\n", "FORBIDDEN_CALL"),
     ("input_call", "input()\n", "FORBIDDEN_CALL"),
     ("help_call", "help()\n", "FORBIDDEN_CALL"),
-    ("exit_call", "exit()\n", "FORBIDDEN_CALL"),
-    ("quit_call", "quit()\n", "FORBIDDEN_CALL"),
     ("relative_import_dot", "from . import sibling\n", "IMPORT_NOT_ALLOWED"),
     ("relative_import_dotted", "from .sibling import thing\n", "IMPORT_NOT_ALLOWED"),
     ("import_xml_not_allowed", "import xml.etree.ElementTree\n", "IMPORT_NOT_ALLOWED"),
@@ -88,6 +86,12 @@ MALICIOUS_CASES: list[tuple[str, str, str]] = [
     ("dunder_globals_attr", "f.__globals__\n", "DUNDER_ACCESS"),
     ("dunder_code_attr", "f.__code__\n", "DUNDER_ACCESS"),
     ("dunder_mro_attr", "type(1).__mro__\n", "DUNDER_ACCESS"),
+    # The `__name__` exemption (D-100) is narrow: only the bare NAME form
+    # (`if __name__ == "__main__":`) is allowed. `.__name__` as an
+    # ATTRIBUTE on some other object stays blocked -- no false positive
+    # was observed for that form, so the exemption doesn't cover it.
+    ("dunder_name_attr", "some_func.__name__\n", "DUNDER_ACCESS"),
+    ("bare_dunder_class_name", "__class__\n", "DUNDER_ACCESS"),
     ("syntax_error", "def f(:\n", "SYNTAX"),
 ]
 
