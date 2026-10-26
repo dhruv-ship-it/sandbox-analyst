@@ -12,6 +12,52 @@ from sandbox_analyst.sandbox.base import validate_upload_name
 
 EXAMPLES_DIR = Path(__file__).resolve().parent / "examples"
 
+# Binary-content sniffing (D-107): catches a non-text file uploaded with a
+# `.csv` name before pandas gets a chance to silently "parse" it as a tiny
+# garbage CSV (the PNG-as-CSV gap found by the red-team dry run, D-101/
+# docs/redteam-dry-run.md). Only the first SNIFF_WINDOW_BYTES are inspected --
+# matches the task's own "first 64 KB" scope and avoids reading a large
+# upload twice.
+SNIFF_WINDOW_BYTES = 64 * 1024
+MAX_CONTROL_BYTE_FRACTION = 0.05
+_TEXT_WHITESPACE_BYTES = frozenset({0x09, 0x0A, 0x0D})  # tab, LF, CR
+BINARY_SIGNATURES: tuple[bytes, ...] = (
+    b"\x89PNG\r\n\x1a\n",  # PNG
+    b"PK\x03\x04",  # ZIP / XLSX
+    b"PK\x05\x06",  # ZIP, empty archive
+    b"PK\x07\x08",  # ZIP, spanned archive
+    b"%PDF",  # PDF
+    b"\x1f\x8b",  # GZIP
+    b"\xff\xd8\xff",  # JPEG
+    b"GIF87a",  # GIF
+    b"GIF89a",  # GIF
+)
+
+
+def sniff_binary(data: bytes) -> str | None:
+    """None if `data` looks like plausible text; else a short reason it doesn't.
+
+    Checked in this order: known binary file signatures, NUL bytes, then the
+    non-text-control-byte fraction -- all over just the first
+    SNIFF_WINDOW_BYTES. A normal UTF-8 or latin-1 CSV never trips any of
+    these: ordinary text has no NUL bytes and only whitespace control
+    characters.
+    """
+    window = data[:SNIFF_WINDOW_BYTES]
+    for signature in BINARY_SIGNATURES:
+        if window.startswith(signature):
+            return "starts with a known binary file signature"
+    if b"\x00" in window:
+        return "contains NUL bytes"
+    if not window:
+        return None
+    n_control = sum(
+        1 for b in window if (b < 0x20 and b not in _TEXT_WHITESPACE_BYTES) or b == 0x7F
+    )
+    if n_control / len(window) > MAX_CONTROL_BYTE_FRACTION:
+        return "more than 5% non-text control bytes"
+    return None
+
 
 class DatasetError(Exception):
     """A client-facing dataset validation failure. `str(exc)` is safe to return."""
@@ -106,6 +152,9 @@ class DatasetStore:
             raise DatasetError(
                 f"upload is {len(data)} bytes, over the {self.max_upload_mb} MB limit"
             )
+        binary_reason = sniff_binary(data)
+        if binary_reason is not None:
+            raise DatasetError(f"file does not look like a text CSV: {binary_reason}")
         try:
             profile = profile_csv(data, file_name)
         except Exception as exc:

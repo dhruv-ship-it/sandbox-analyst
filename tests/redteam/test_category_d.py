@@ -54,15 +54,14 @@ def test_binary_junk_result_is_reported_honestly_either_way(tmp_path: Path):
     assert isinstance(result.handled, bool)
 
 
-def test_non_csv_disguised_as_csv_is_a_confirmed_unhandled_gap(tmp_path: Path):
-    # A real finding from this suite, not fixed this session (see
-    # DECISIONS.md D-101 and docs/security.md): a structurally valid PNG
-    # renamed to .csv is accepted (200, stored) because pandas parses the
-    # latin-1-decoded binary bytes as a tiny, garbage "CSV" without ever
-    # raising. This pins the actual, current behavior so a future fix
-    # shows up here as a result flipping to handled, not as a silently
-    # vanished test.
+def test_non_csv_disguised_as_csv_is_now_rejected(tmp_path: Path):
+    # Found by this suite's dry run (D-101) and fixed pre-freeze (D-107):
+    # a structurally valid PNG renamed to .csv used to be accepted (200,
+    # stored) because pandas parsed the latin-1-decoded binary bytes as a
+    # tiny, garbage "CSV" without ever raising. `DatasetStore` now sniffs
+    # for binary content (signatures, NUL bytes, control-byte fraction)
+    # before pandas ever sees it, so this case is handled.
     results = run_category_d(tmp_path)
     result = _result_for(results, "non_csv_disguised_as_csv")
-    assert not result.handled
-    assert result.status == "200"
+    assert result.handled
+    assert result.status is not None and result.status.startswith("4")

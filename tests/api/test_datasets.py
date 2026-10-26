@@ -1,6 +1,8 @@
 import io
 
-from sandbox_analyst.api.datasets import DatasetError, DatasetStore
+import pytest
+
+from sandbox_analyst.api.datasets import DatasetError, DatasetStore, sniff_binary
 
 
 def _upload(client, name: str, content: bytes, content_type: str = "text/csv"):
@@ -57,6 +59,58 @@ def test_upload_rejects_too_many_rows(build_client):
     response = _upload(client, "tall.csv", csv.encode())
     assert response.status_code == 400
     assert "row" in response.json()["detail"]
+
+
+# ---- binary-content sniffing (D-107) ----
+
+
+# A minimal, structurally valid 1x1 PNG -- the exact red-team-D payload
+# (`non_csv_disguised_as_csv`) that previously got a 200 and was stored.
+_PNG_BYTES = bytes.fromhex(
+    "89504e470d0a1a0a0000000d49484452000000010000000108"
+    "0600000031b2619a0000000a4944415478da6360000002000154a24f6b0000000049454e44ae426082"
+)
+
+
+@pytest.mark.parametrize(
+    ("name", "data"),
+    [
+        ("png", _PNG_BYTES),
+        ("zip_xlsx", b"PK\x03\x04" + b"\x00" * 20),
+        ("pdf", b"%PDF-1.4\n" + b"\x00" * 20),
+        ("gzip", b"\x1f\x8b\x08\x00" + b"\x00" * 20),
+        ("jpeg", b"\xff\xd8\xff\xe0" + b"\x00" * 20),
+        ("gif", b"GIF89a" + b"\x00" * 20),
+        ("nul_bytes", b"a,b\n1,\x002\n"),
+        ("mostly_control_bytes", bytes(range(32)) * 100),
+    ],
+)
+def test_sniff_binary_flags_binary_content(name, data):
+    assert sniff_binary(data) is not None
+
+
+def test_sniff_binary_accepts_plain_utf8_csv():
+    assert sniff_binary(b"a,b\n1,2\n") is None
+
+
+def test_sniff_binary_accepts_latin1_csv_with_accented_bytes():
+    # 0xE9 ("é" in latin-1) is a high byte, not a control byte -- must pass.
+    csv = "name,city\nAndre,Montreal\n".encode("latin-1")
+    accented = csv.replace(b"Montreal", "Montréal".encode("latin-1"))
+    assert sniff_binary(accented) is None
+
+
+def test_sniff_binary_accepts_empty_file():
+    # Rejected elsewhere for being unparseable, not as "binary".
+    assert sniff_binary(b"") is None
+
+
+def test_upload_rejects_png_disguised_as_csv(client):
+    response = _upload(client, "image.csv", _PNG_BYTES)
+    assert response.status_code == 400
+    body = response.json()
+    assert body["error"] == "invalid_dataset"
+    assert "binary" in body["detail"]
 
 
 def test_upload_accepts_a_valid_csv(client):

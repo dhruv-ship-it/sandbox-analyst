@@ -2988,3 +2988,146 @@ dropped. Re-running v1 with the pre-fix code to get a "fresh" 0.777 --
 unnecessary and wasteful; the original run's stored data plus a
 validator bypass reproduces the exact same number deterministically,
 with no live cost.
+
+## D-107 — Upload-time binary-content sniffing closes the PNG-as-CSV gap
+
+**Date:** 2026-10-27
+
+**Decision:** `api/datasets.py`'s `sniff_binary(data)` inspects only the
+first 64 KB of an upload and rejects it (as a `DatasetError`, surfaced
+as a `400 invalid_dataset`) if that window: starts with a known binary
+file signature (PNG, ZIP/XLSX, PDF, GZIP, JPEG, GIF); contains any NUL
+byte; or has more than 5% non-text control bytes (any byte `< 0x20`
+other than tab/LF/CR, or `0x7F`). This runs in `DatasetStore.
+validate_and_profile`, before `profile_csv`/`pandas.read_csv` ever sees
+the bytes.
+
+**Why:** The red-team dry run (`docs/redteam-dry-run.md`) found that a
+structurally valid PNG renamed to `.csv` got a clean `200` and was
+stored, because `pandas.read_csv` on the latin-1-decoded binary bytes
+never raises -- it parses a tiny, garbage "CSV" instead. The existing
+`except Exception` wrapper around `profile_csv` therefore never fires
+for this input; the check has to run *before* parsing, as its own
+explicit gate, not as a catch clause. A small, explicit signature list
+plus NUL-byte and control-byte-fraction checks catches the specific
+gap found (and several sibling binary formats) while a normal UTF-8 or
+latin-1 text CSV -- which has no NUL bytes and only whitespace control
+characters -- never trips any of the three checks. Only the first
+64 KB is read, matching this task's own scope and avoiding re-reading
+a large upload just to sniff it.
+
+**Alternatives rejected:** Relying on a stricter `pandas.read_csv`
+call (e.g. requiring a successful `utf-8` decode) -- rejected, this
+project's own `_decode` deliberately falls back to latin-1 (which
+never raises) for real CSVs with legitimate non-UTF-8 bytes (D-042's
+`profile_csv`), so "decode failure" can't be the signal. Scanning the
+*whole* file instead of a 64 KB window -- rejected as unnecessary cost
+for a decision a binary file's own header already makes clear only a
+few KB in.
+
+## D-108 — The red-team dry run informs; it is never tuned against
+
+**Date:** 2026-10-27
+
+**Decision:** No prompt, sampling, or agent-behavior change is made in
+direct response to any single red-team dry-run case's outcome,
+including the one real (non-harness-bug) category B failure
+(`question_fake_system`, diagnosed in `docs/redteam-dry-run.md`). The
+dry run may fix the *suite itself* (a harness measurement bug, D-105)
+or close a *structural, general* gap found incidentally while building
+it (upload-time path traversal D-102, binary sniffing D-107) -- but it
+never drives a change aimed at making one specific case pass.
+
+**Why:** This is the exact same discipline CLAUDE.md's test-set rule
+already applies to the held-out DABench split, generalized to the
+red-team suite: a red-team run that could silently change the system's
+behavior before the *frozen, final* red-team run would make that final
+run's "handled N of M" numbers meaningless as a security measurement
+-- indistinguishable from a system tuned to pass its own known test
+cases rather than one that's actually robust. The dry run's purpose is
+narrowly to calibrate the suite (find bugs in the suite's own grading
+logic, find structural gaps worth closing regardless of which specific
+case exposed them) before the one measurement that counts.
+
+**Alternatives rejected:** Fixing the category B prompt to explicitly
+refuse injected "SYSTEM:" text -- rejected outright; CLAUDE.md rule 6
+("only patterns seen 3+ times, or a clear general bug") already forbids
+reading a prompt change off a single example, and doing so here would
+mean the final red-team run measures a system shaped by its own test
+data. Treating D-102/D-107 the same way (reverting them to "found but
+not fixed") -- rejected; both are general, structural fixes (a path-
+traversal-shaped name, a binary file sniffed before parsing) that don't
+target this one case's specific wording, the same distinction CLAUDE.md
+rule 6 already draws for the dev-set prompt fixes.
+
+## D-109 — The frozen configuration (`frozen-v1`)
+
+**Date:** 2026-10-27
+
+**Decision:** The system is frozen for the held-out evaluation and the
+final red-team run at this commit, tagged `frozen-v1`. The frozen
+configuration is:
+
+- **Prompt:** `PROMPT_VERSION=v2` (`Settings.sa_prompt_version`, D-095).
+- **Model/provider (evaluation):** `openai/gpt-oss-20b` via NVIDIA NIM
+  (`sa_llm_provider=nim`, D-003/D-004).
+- **Sampling:** `temperature=1.0`, `top_p=1.0`, `max_tokens=4096`,
+  `reasoning_effort="medium"` (D-036/D-039) — fixed, not tuned per
+  call; run-to-run variance is handled by reporting 3 runs with a CI
+  (D-013), not by forcing determinism.
+- **Timeout:** `llm_timeout_s=142` (seconds per LLM call, D-056).
+- **Sandbox image pins:** `pandas==3.1.0`, `numpy==2.5.4`,
+  `scipy==1.18.1`, `scikit-learn==1.9.1`, `statsmodels==0.15.0`,
+  `matplotlib==3.11.2`, `seaborn==0.13.2` (`sandbox/modal_image.py`'s
+  `PINNED_PACKAGES`, D-024).
+- **DABench revision:** `b455d578e30fee513abd79936cbdf7a6de026cb5`
+  (`bench/download.py`'s `PINNED_REVISION`, D-040).
+- **Split hash:** sha256 of `eval/split.json` =
+  `405f0750473ff878ed415c02a79404f60afddb260da162c25d11465dce1b631b`
+  (D-041).
+- **Checker policy version:** `guard/policy.py` has no separate version
+  constant of its own (the allowlist/denylist rules are versioned
+  implicitly, by git history, per D-010) — the policy in force is
+  whatever this commit's `guard/policy.py` contains, identified by this
+  commit's own SHA, same as every other frozen file.
+
+This entry is recorded in the same commit as Task 1's binary-upload
+fix (amended in, before tagging) so the frozen configuration is itself
+part of the frozen, tagged tree — not a follow-up commit describing a
+tree that had already moved on.
+
+**Why:** `bench/harness.py`'s own `Manifest` (written per eval run)
+already records most of these fields automatically from `Settings` at
+run time, which is the authoritative source if this entry and a real
+run's manifest ever disagree — this decision exists so the frozen
+configuration is also legible from `DECISIONS.md` alone, for anyone
+reading the project's history without re-running anything.
+
+**Alternatives rejected:** A separate, later commit for this record —
+rejected; the whole point of a frozen tag is that the tagged tree is
+self-describing, and a config description committed after the tag
+would describe a commit that isn't the one actually tagged and
+measured.
+
+## D-110 — `load_split("test")`'s own gate is the freeze's real enforcement, not a convention
+
+**Date:** 2026-10-27
+
+**Decision:** No new gating code is added for the freeze itself.
+`bench.split.load_split("test")`'s existing check (clean working tree
++ a `frozen-*`-tagged `HEAD`, D-012) is treated as the actual
+enforcement mechanism; "don't commit during Task 3" is a human/agent
+discipline rule on top of it (same relationship CLAUDE.md rule 11
+already has to this same function for the dev/test split generally).
+
+**Why:** The gate was built in P2 specifically so that loading the
+held-out split requires being at a real frozen tag on a clean tree —
+exactly the state this task's freeze is meant to produce. Writing a
+second, separate freeze-specific check would duplicate logic that
+already does the job and already has its own tests
+(`tests/bench/test_split.py`).
+
+**Alternatives rejected:** A dedicated `--frozen` flag or lock file for
+this evaluation session specifically — rejected as unnecessary
+duplication of a gate that already exists and is already exercised by
+every `--split test` run.
