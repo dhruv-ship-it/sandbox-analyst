@@ -76,21 +76,46 @@ agent that gets measured at the freeze stay identical by construction
 dependencies while a long evaluation is running in the same
 environment.
 
-## P3 — Guardrail hardening and red-team suite (next, after dev improvements)
+## P3 — Guardrail hardening and red-team suite (done)
 
 Red-team the static checker and the sandbox, each with the other layer
-disabled. Optional Docker backend (insurance only, see D-008 — first
-thing cut if behind schedule).
+disabled. Optional Docker backend (insurance only, see D-008 — cut, per
+its own documented first-thing-cut rule — never built).
 
 **Exit check:** A report of "handled N of M" attack attempts per
 category, plus the checker's false-positive rate on benign dev-set
-tasks.
+tasks. Met: dry run (`docs/redteam-dry-run.md`, 31/42, 0 canary leaks)
+found and fixed a suite calibration bug (D-105) and two structural
+gaps (D-102, D-107); checker false-positive rate 5/167 = 0.030
+(`docs/security.md`).
 
-## P6 — Freeze and held-out evaluation (last)
+## P6 — Freeze and held-out evaluation (done)
 
 Freeze the system at a `frozen-*` tag, run the held-out evaluation once
 (3 full runs, bootstrap 95% CIs, see D-013), write up the README and
 resume bullets.
 
 **Exit check:** Evaluation report with confidence intervals published;
-README written; resume bullets use only numbers from that report.
+README written; resume bullets use only numbers from that report. Met:
+frozen at `frozen-v1` (D-109); held-out results in
+`docs/results-heldout.md` (tolerant ABQ 0.818, 95% CI 0.765-0.869);
+final red-team results in `docs/redteam-final.md` (handled 41/42, 0
+canary leaks); README's Results section links both.
+
+## What remains (optional polish only)
+
+No required measurement work remains — `frozen-v1`'s held-out and
+red-team numbers are final and are not re-run or tuned against
+(D-108). Optional, non-blocking ideas if picked back up later:
+
+- The Docker sandbox backend (D-008), still unbuilt, still optional
+  insurance for heavy local evaluation runs.
+- A trace writer for category B's red-team cases (it currently has
+  none, unlike category A), so a future failure in that category has a
+  persisted trace to diagnose from instead of only a final
+  `CaseResult` (see `docs/redteam-final.md`'s `question_fake_system`
+  writeup for why this limit mattered this session).
+- The two documented, sandboxed-and-contained static-checker bypasses
+  (`docs/security.md`) remain open by design; closing either would need
+  a real dataflow/alias-tracking pass, not AST-only checks, and neither
+  grants anything the sandbox doesn't already permit.

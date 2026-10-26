@@ -3131,3 +3131,38 @@ already does the job and already has its own tests
 this evaluation session specifically — rejected as unnecessary
 duplication of a gate that already exists and is already exercised by
 every `--split test` run.
+
+## D-111 — The paired k=4-minus-k=1 lift is computed by an uncommitted script, not a repo change
+
+**Date:** 2026-10-26
+
+**Decision:** `docs/results-heldout.md`'s paired-lift-with-CI number
+was computed by a standalone script (not added to the repo, not
+committed) that imports only already-frozen, already-tested building
+blocks (`bench.report.truncated_answer_at_k`, `bench.report.
+_grade_rows`, `bench.stats.paired_bootstrap_ci`) and composes them: for
+each question, pair its k=1 and k=4 graded outcomes across all 3 runs
+into one row, then bootstrap over rows with a custom statistic
+(`mean(k4) - mean(k1)`) instead of the module's default `mean`.
+
+**Why:** `bench.report`'s own `ablation_report` computes each k's
+pooled ABQ with its *own* independent CI, not the paired difference
+between two specific rows — exactly the same situation D-106 already
+hit when comparing v2 against v1 (that comparison was also a one-off
+script, never added as reusable report code). Task 3's freeze
+discipline forbids code changes between the tag and the final report
+(CLAUDE.md-equivalent rule for this session), so extending
+`bench/report.py` itself was not an option at this point — but no
+extension was needed: `paired_bootstrap_ci`'s resampling-by-question
+contract already generalizes to any per-question value (here, a
+`(k1, k4)` tuple) and any statistic function over the flattened
+resample, so composing the existing pieces from outside the package
+is sufficient and touches zero frozen files.
+
+**Alternatives rejected:** Adding a `paired_lift` function to
+`bench/report.py` before the freeze (in Task 1) — rejected; Task 1 was
+scoped to the binary-upload fix and the dry-run diagnosis, and reading
+a reporting feature's shape off a metric this task's own prompt asked
+for is a smaller, more honest justification for scope creep than
+inventing a reason to add it speculatively. Extending `bench/report.py`
+during Task 3 itself — rejected outright by freeze discipline.

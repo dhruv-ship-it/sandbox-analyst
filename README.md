@@ -72,16 +72,40 @@ of CSV question-answering tasks with an automatic grader, using a
 file-level dev/test split (split by CSV file, not by question, so no
 file's structure leaks between the two sets).
 
-The held-out evaluation run happens once, after the system is frozen at
-a tagged commit -- not continuously during development, so there's no
-way to tune against it by accident. **Results will be published after
-the held-out run.** Until then, this README reports no accuracy
-numbers.
+The held-out evaluation ran once, after the system was frozen at a
+tagged commit (`frozen-v1`) -- not continuously during development, so
+there was no way to tune against it by accident.
 
 The original DABench paper reports GPT-4/GPT-3.5 scores using its own
 grader; this project's grader is a separate implementation, designed
 from (and tested against) only the dev split's labels, so those
 published numbers are context, not a direct comparison.
+
+## Results
+
+Frozen at `frozen-v1`, 3 held-out runs, 183 test-split questions each.
+Full numbers, methodology, and confidence intervals:
+[docs/results-heldout.md](docs/results-heldout.md).
+
+- **Tolerant ABQ: 0.818** (95% CI 0.765-0.869). Strict ABQ: 0.750 (95%
+  CI 0.694-0.805).
+- Single-shot (attempt 1 only) vs. final (up to 3 repairs): tolerant
+  ABQ 0.765 -> 0.818, a paired lift of **+0.053** (95% CI 0.027-0.082)
+  -- a real, statistically significant gain from letting the agent
+  repair.
+- Error recovery: 45 of 549 tasks hit a runtime error on attempt 1; **87%**
+  (95% CI 75.6-95.6%) of those still ended `answered` within the
+  4-attempt budget.
+- 0 infrastructure failures across all 549 question-runs.
+
+Final red-team run on the same frozen system (all 42 cases, live):
+[docs/redteam-final.md](docs/redteam-final.md).
+
+- **Handled 41 of 42** (A: 15/15, B: 11/12, C: 9/9, D: 6/6).
+- **0 canary leaks** -- nothing a case tried ever reached a real output,
+  message, or trace.
+- The sandbox alone (checker disabled) contained 18 of 18 real attack
+  attempts the model generated.
 
 ## Tech stack
 
@@ -131,14 +155,13 @@ development rules and commands.
 **Done:** the agent loop (write/check/run/repair), the static checker,
 the Modal sandbox backend, a provider-agnostic LLM client, the DABench
 download and dev/test split, a FastAPI app with an SSE step timeline,
-the React UI, CI, and a live deployment on Azure.
+the React UI, CI, a live deployment on Azure, a red-team suite for the
+static checker and the sandbox (each tested with the other layer
+disabled), and the frozen, held-out DABench evaluation (3 runs,
+bootstrap confidence intervals -- see Results above).
 
-**Next:** a red-team suite for the static checker and the sandbox (each
-tested with the other layer disabled), and the frozen, held-out DABench
-evaluation (3 runs, bootstrap confidence intervals) this README's
-Evaluation section is waiting on.
-
-See [docs/PLAN.md](docs/PLAN.md) for the full phased plan.
+See [docs/PLAN.md](docs/PLAN.md) for the full phased plan and what
+remains (optional polish only; the measurement work is done).
 
 ## Licence
 
