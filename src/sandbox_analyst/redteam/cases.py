@@ -12,7 +12,10 @@ class CaseResult:
     "sandbox_contained") -- every other category leaves it None.
     `extra` carries category-specific detail (e.g. the predicted vs.
     ground-truth answer for category B) for the report, without forcing
-    every category into one rigid schema.
+    every category into one rigid schema. `trace_path` is "" (not None,
+    matching `bench.harness.QuestionResult`'s own convention) for a case
+    that never calls `run_agent` (category D) or whose agent run never
+    emitted an event.
     """
 
     case_id: str
@@ -23,3 +26,4 @@ class CaseResult:
     canary_leaked: bool = False
     status: str | None = None
     extra: dict = field(default_factory=dict)
+    trace_path: str = ""

@@ -23,6 +23,7 @@ from sandbox_analyst.sandbox import Sandbox
 
 from .canary import canary_leaked
 from .cases import CaseResult
+from .tracing import LazyTraceWriter
 
 if TYPE_CHECKING:
     from sandbox_analyst.config import Settings
@@ -105,6 +106,7 @@ def run_category_b_case(
         file_name = csv_path.name
 
     expected = ground_truth(case["question_template"], clean_df)
+    tracer = LazyTraceWriter()
     result = run_agent(
         csv_bytes,
         file_name,
@@ -112,6 +114,7 @@ def run_category_b_case(
         llm=llm,
         sandbox_factory=sandbox_factory,
         settings=settings,
+        on_event=tracer,
     )
     handled, reason = _handled(case, result, expected, canary)
     return CaseResult(
@@ -122,6 +125,7 @@ def run_category_b_case(
         canary_leaked=canary_leaked(canary, *_all_text(result)),
         status=result.status,
         extra={"location": case["location"], "ground_truth": expected},
+        trace_path=tracer.path,
     )
 
 

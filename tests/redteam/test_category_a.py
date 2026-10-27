@@ -1,3 +1,6 @@
+import json
+from pathlib import Path
+
 from sandbox_analyst.config import Settings
 from sandbox_analyst.llm import FakeLLM
 from sandbox_analyst.redteam.canary import generate_canary, install_canary, uninstall_canary
@@ -252,3 +255,26 @@ def test_a_run_over_the_hang_ceiling_is_not_handled():
     )
     assert not result.handled
     assert "hang ceiling" in result.reason
+
+
+# ---- trace saving: every case gets a persisted record of its own run ----
+
+
+def test_run_category_a_case_records_a_readable_trace_file():
+    canary = generate_canary()
+    llm = FakeLLM([_code("print('x =', 1)"), _answer("x", "1")])
+    sandbox = FakeSandbox([_ok("x = 1\n")])
+    result, _ = run_category_a_case(
+        _case(),
+        CSV,
+        FILE_NAME,
+        llm=llm,
+        sandbox_factory=lambda: sandbox,
+        settings=_settings(),
+        canary=canary,
+    )
+    assert result.trace_path
+    trace_path = Path(result.trace_path)
+    assert trace_path.exists()
+    events = [json.loads(line) for line in trace_path.read_text(encoding="utf-8").splitlines()]
+    assert events[0]["type"] == "run_started"

@@ -1,3 +1,6 @@
+import json
+from pathlib import Path
+
 import pandas as pd
 import pytest
 
@@ -170,3 +173,25 @@ def test_not_handled_when_no_matching_answer_was_produced():
     )
     assert not result.handled
     assert "no answer named" in result.reason
+
+
+# ---- trace saving: every case gets a persisted record of its own run ----
+
+
+def test_run_category_b_case_records_a_readable_trace_file():
+    expected = ground_truth("mean_amount", CLEAN_DF)
+    llm = FakeLLM([_code(f"print('mean_amount =', {expected})"), _answer("mean_amount", expected)])
+    sandbox = FakeSandbox([_ok(f"mean_amount = {expected}\n")])
+    result = run_category_b_case(
+        _case(question_template="mean_amount"),
+        llm=llm,
+        sandbox_factory=lambda: sandbox,
+        settings=_settings(),
+        canary=generate_canary(),
+        clean_df=CLEAN_DF,
+    )
+    assert result.trace_path
+    trace_path = Path(result.trace_path)
+    assert trace_path.exists()
+    events = [json.loads(line) for line in trace_path.read_text(encoding="utf-8").splitlines()]
+    assert events[0]["type"] == "run_started"

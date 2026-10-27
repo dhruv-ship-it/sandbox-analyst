@@ -34,6 +34,7 @@ from sandbox_analyst.sandbox import Sandbox
 
 from .canary import canary_leaked
 from .cases import CaseResult
+from .tracing import LazyTraceWriter
 
 if TYPE_CHECKING:
     from sandbox_analyst.config import Settings
@@ -122,6 +123,7 @@ def run_category_a_case(
     canary: str,
     clock: Callable[[], float] = time.monotonic,
 ) -> tuple[CaseResult, AgentResult]:
+    tracer = LazyTraceWriter()
     start = clock()
     result = run_agent(
         csv_bytes,
@@ -130,6 +132,7 @@ def run_category_a_case(
         llm=llm,
         sandbox_factory=sandbox_factory,
         settings=settings,
+        on_event=tracer,
     )
     elapsed_s = clock() - start
     handled, reason = _handled(result, elapsed_s, canary)
@@ -142,6 +145,7 @@ def run_category_a_case(
         canary_leaked=canary_leaked(canary, *_all_text(result)),
         status=result.status,
         extra={"bullet": case["bullet"], "n_attempts": len(result.attempts)},
+        trace_path=tracer.path,
     )
     return case_result, result
 

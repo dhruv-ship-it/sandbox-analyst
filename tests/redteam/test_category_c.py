@@ -1,3 +1,5 @@
+from pathlib import Path
+
 from sandbox_analyst.config import Settings
 from sandbox_analyst.llm import FakeLLM, LLMResponse
 from sandbox_analyst.redteam.canary import generate_canary
@@ -147,3 +149,13 @@ def test_evidence_impossible_output_fails_cleanly():
 def test_every_case_result_is_category_c():
     results = run_category_c(settings=_settings(), canary=generate_canary())
     assert all(r.category == "C" for r in results)
+
+
+# ---- trace saving: every case gets a persisted record of its own run ----
+
+
+def test_every_category_c_case_records_a_trace_file():
+    results = run_category_c(settings=_settings(), canary=generate_canary())
+    for result in results:
+        assert result.trace_path, result.case_id
+        assert Path(result.trace_path).exists()

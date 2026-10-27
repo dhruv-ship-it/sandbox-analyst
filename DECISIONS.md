@@ -3214,3 +3214,52 @@ script that was never committed. Making `paired_lift` take only a fixed
 task's own wording ("e.g. k=4 vs k=1") asked for a general comparison
 between ablation depths; the fixed pair only lives in `paired_lift_
 report`'s defaults, which `build_report` uses for the headline number.
+
+## D-113 — Every red-team case gets a persisted trace, via a package-local `LazyTraceWriter`
+
+**Date:** 2026-10-27
+
+**Decision:** `redteam/cases.py`'s `CaseResult` gained a `trace_path:
+str = ""` field (empty-string sentinel, matching `bench.harness.
+QuestionResult`'s own convention, not `None`). `category_a.py`,
+`category_b.py`, and `category_c.py` each attach a new
+`redteam.tracing.LazyTraceWriter` as `run_agent`'s `on_event` for every
+case and record its resulting `.path` on the `CaseResult` it builds --
+including category C's defensive "an uncaught exception escaped
+run_agent" branch, since `run_started` is always the very first event
+`run_agent` emits, before any LLM or sandbox call that a fault schedule
+could possibly fail on. `LazyTraceWriter` is one small class in a new
+`redteam/tracing.py`, shared by all three categories (unlike `cli.py`'s
+and `bench/harness.py`'s own private copies of the same lazy-writer
+shape, which live in different packages) because duplicating it three
+times inside one package would be needless. Category D never calls
+`run_agent` at all (it exercises the upload API directly), so its
+`trace_path` stays `""` by construction -- not a gap, there is no
+agent run to trace. The red team itself is not rerun by this task.
+
+**Why:** The final red-team run's own write-up
+(`docs/redteam-final.md`) already noted that category B's one failure
+(`B:question_fake_system`) couldn't be diagnosed further because
+"category B's live run attaches no trace writer (unlike category A),
+so there is no persisted record of what name or value was actually
+submitted." Reading the actual code behind that sentence showed it
+was describing a looser distinction than a real trace file: category
+A's runner happens to return `(CaseResult, AgentResult)` tuples (kept
+in memory for layer-isolation replay), while category B's only returns
+`CaseResult`s and discards the `AgentResult` -- neither category ever
+wrote an actual trace file to disk. "Keep a trace for every case" is
+the fix for the real gap underneath that sentence: a persisted,
+inspectable record of exactly what each case's agent run did, so the
+*next* live red-team run doesn't repeat the same "we don't know what
+actually happened" dead end if `B:question_fake_system` (or any other
+case) fails again.
+
+**Alternatives rejected:** Keeping the in-memory `AgentResult` plumbing
+category A already had and extending that same pattern to B/C instead
+of writing to disk -- rejected, it still disappears the moment the
+process exits, which is exactly the limitation this task exists to
+fix. Threading a configurable `trace_dir` through every category
+function for test isolation -- rejected as unneeded scope: `TraceWriter`
+already defaults to `runs/traces/` (gitignored, never committed), the
+same real location every other trace in this project lands in, and no
+caller of these category functions has ever needed a different one.

@@ -27,6 +27,7 @@ from sandbox_analyst.sandbox import ExecResult, FakeSandbox, SandboxCrashed, San
 from .canary import canary_leaked
 from .cases import CaseResult
 from .fault_injection import FaultOrNone, FaultyLLM, FaultySandbox
+from .tracing import LazyTraceWriter
 
 if TYPE_CHECKING:
     from sandbox_analyst.config import Settings
@@ -188,6 +189,7 @@ def run_fault_case(
 ) -> CaseResult:
     faulty_llm = _wrap_llm(FakeLLM(), fault_case.llm_schedule)
     faulty_sandbox = FaultySandbox(FakeSandbox(), fault_case.sandbox_schedule)
+    tracer = LazyTraceWriter()
 
     start = clock()
     try:
@@ -198,6 +200,7 @@ def run_fault_case(
             llm=faulty_llm,
             sandbox_factory=lambda: faulty_sandbox,
             settings=settings,
+            on_event=tracer,
         )
     except Exception as exc:  # the one thing a fault MUST NOT do: escape run_agent
         elapsed_s = clock() - start
@@ -208,6 +211,7 @@ def run_fault_case(
             reason=f"uncaught exception escaped run_agent: {type(exc).__name__}: {exc}",
             status=None,
             extra={"elapsed_s": elapsed_s},
+            trace_path=tracer.path,
         )
     elapsed_s = clock() - start
 
@@ -220,6 +224,7 @@ def run_fault_case(
             reason="canary leaked",
             canary_leaked=True,
             status=result.status,
+            trace_path=tracer.path,
         )
     if elapsed_s >= MAX_REASONABLE_SECONDS:
         return CaseResult(
@@ -228,6 +233,7 @@ def run_fault_case(
             handled=False,
             reason=f"took {elapsed_s:.1f}s, over the {MAX_REASONABLE_SECONDS}s ceiling (hang?)",
             status=result.status,
+            trace_path=tracer.path,
         )
     if result.status != fault_case.expected_status:
         return CaseResult(
@@ -236,6 +242,7 @@ def run_fault_case(
             handled=False,
             reason=f"expected status {fault_case.expected_status!r}, got {result.status!r}",
             status=result.status,
+            trace_path=tracer.path,
         )
     return CaseResult(
         case_id=fault_case.id,
@@ -245,6 +252,7 @@ def run_fault_case(
             f"reached {result.status!r} honestly within {elapsed_s:.2f}s, no hang, no canary leak"
         ),
         status=result.status,
+        trace_path=tracer.path,
     )
 
 
