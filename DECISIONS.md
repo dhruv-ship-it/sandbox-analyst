@@ -3436,3 +3436,39 @@ review the existing guarded job, not redesign the deploy mechanism) and
 inconsistent with this guide's existing by-hand, minimal-portal-steps
 style; the trade-off is instead written down explicitly so the choice
 is deliberate and documented, not silently left unconsidered.
+
+## D-118 — Resume bullets superseded with this session's exact final wording; the replay/deploy stories folded into interview prep
+
+**Date:** 2026-10-27
+
+**Decision:** `notes/INTERVIEW.md`'s "Resume bullets" section now holds
+this session's three bullets verbatim (built-and-self-repairing-agent;
+82%/77%/87%/41-of-42; "CI/CD to Azure that blocks any release failing
+its 650+ tests, including replays of recorded LLM runs") as the
+current, sign-off version, with the previous session's draft kept
+underneath, labeled superseded rather than deleted -- that earlier
+draft had described a replay suite and a reviewed deploy pipeline in
+advance of either actually existing, and bullet 3's "650+" claim was
+re-checked against the real suite rather than assumed: Task 3 of this
+session's own work grew the default (non-`live`) run from 649 to
+**671** passing/xfailed (687 collected total, 16 deselected), so both
+readings now clear "650+" cleanly, where 649 previously did not quite
+(D-115). Also added two new interview Q&A groups: the sandbox-side
+record/replay generalization (with the "how do you know the suite
+would catch a real regression" and "what doesn't this suite tell you"
+follow-ups), under "LLM layer and testing," and the auto-redeploy
+pipeline plus the publish-profile-vs-OIDC trade-off, under "Deployment
+and the public demo."
+
+**Why:** Keeping the superseded draft visible (not deleting it) is the
+same instinct as D-106's two-framing reporting: the fact that a bullet's
+earlier wording described work that didn't exist yet when it was
+written is itself worth being able to explain if asked "when did you
+build the replay tests relative to writing that resume line" --
+deleting it would make that honest sequencing invisible later.
+
+**Alternatives rejected:** Quietly overwriting the earlier draft with
+no note that it changed -- rejected, loses the sequencing information
+for no benefit (`notes/` is private and already expected to carry this
+kind of history, per `notes/JOURNAL.md`'s dated entries doing the same
+thing).
