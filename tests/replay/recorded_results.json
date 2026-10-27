@@ -1,0 +1,247 @@
+[
+  {
+    "task_id": "sales_total_revenue",
+    "status": "answered",
+    "n_attempts": 1,
+    "n_repairs": 0,
+    "answers": {
+      "total_revenue": "1074120.09"
+    },
+    "event_types": [
+      "run_started",
+      "profile",
+      "llm_request",
+      "llm_response",
+      "code",
+      "static_check",
+      "exec_started",
+      "exec_result",
+      "llm_request",
+      "llm_response",
+      "answer",
+      "evidence",
+      "run_finished"
+    ]
+  },
+  {
+    "task_id": "sales_highest_avg_price_product",
+    "status": "answered",
+    "n_attempts": 1,
+    "n_repairs": 0,
+    "answers": {
+      "product": "Widget A",
+      "avg_price": "296.10"
+    },
+    "event_types": [
+      "run_started",
+      "profile",
+      "llm_request",
+      "llm_response",
+      "code",
+      "static_check",
+      "exec_started",
+      "exec_result",
+      "llm_request",
+      "llm_response",
+      "answer",
+      "evidence",
+      "run_finished"
+    ]
+  },
+  {
+    "task_id": "sales_west_total_units",
+    "status": "answered",
+    "n_attempts": 1,
+    "n_repairs": 0,
+    "answers": {
+      "west_units": "1020"
+    },
+    "event_types": [
+      "run_started",
+      "profile",
+      "llm_request",
+      "llm_response",
+      "code",
+      "static_check",
+      "exec_started",
+      "exec_result",
+      "llm_request",
+      "llm_response",
+      "answer",
+      "evidence",
+      "run_finished"
+    ]
+  },
+  {
+    "task_id": "sales_region_bar_chart",
+    "status": "answered",
+    "n_attempts": 1,
+    "n_repairs": 0,
+    "answers": {
+      "top_region": "North"
+    },
+    "event_types": [
+      "run_started",
+      "profile",
+      "llm_request",
+      "llm_response",
+      "code",
+      "static_check",
+      "exec_started",
+      "exec_result",
+      "llm_request",
+      "llm_response",
+      "answer",
+      "evidence",
+      "run_finished"
+    ]
+  },
+  {
+    "task_id": "students_avg_math_score",
+    "status": "answered",
+    "n_attempts": 1,
+    "n_repairs": 0,
+    "answers": {
+      "avg_math_score": "78.1"
+    },
+    "event_types": [
+      "run_started",
+      "profile",
+      "llm_request",
+      "llm_response",
+      "code",
+      "static_check",
+      "exec_started",
+      "exec_result",
+      "llm_request",
+      "llm_response",
+      "answer",
+      "evidence",
+      "run_finished"
+    ]
+  },
+  {
+    "task_id": "students_highest_attendance_class",
+    "status": "answered",
+    "n_attempts": 1,
+    "n_repairs": 0,
+    "answers": {
+      "class_name": "9B",
+      "avg_attendance": "84.63"
+    },
+    "event_types": [
+      "run_started",
+      "profile",
+      "llm_request",
+      "llm_response",
+      "code",
+      "static_check",
+      "exec_started",
+      "exec_result",
+      "llm_request",
+      "llm_response",
+      "llm_request",
+      "llm_response",
+      "answer",
+      "evidence",
+      "run_finished"
+    ]
+  },
+  {
+    "task_id": "students_score_histogram",
+    "status": "answered",
+    "n_attempts": 1,
+    "n_repairs": 0,
+    "answers": {
+      "n_scores": "60"
+    },
+    "event_types": [
+      "run_started",
+      "profile",
+      "llm_request",
+      "llm_response",
+      "code",
+      "static_check",
+      "exec_started",
+      "exec_result",
+      "llm_request",
+      "llm_response",
+      "answer",
+      "evidence",
+      "run_finished"
+    ]
+  },
+  {
+    "task_id": "students_score_attendance_corr",
+    "status": "answered",
+    "n_attempts": 1,
+    "n_repairs": 0,
+    "answers": {
+      "correlation": "0.003"
+    },
+    "event_types": [
+      "run_started",
+      "profile",
+      "llm_request",
+      "llm_response",
+      "code",
+      "static_check",
+      "exec_started",
+      "exec_result",
+      "llm_request",
+      "llm_response",
+      "answer",
+      "evidence",
+      "run_finished"
+    ]
+  },
+  {
+    "task_id": "weather_avg_temp_mumbai",
+    "status": "answered",
+    "n_attempts": 1,
+    "n_repairs": 0,
+    "answers": {
+      "avg_temp_mumbai": "23.67"
+    },
+    "event_types": [
+      "run_started",
+      "profile",
+      "llm_request",
+      "llm_response",
+      "code",
+      "static_check",
+      "exec_started",
+      "exec_result",
+      "llm_request",
+      "llm_response",
+      "answer",
+      "evidence",
+      "run_finished"
+    ]
+  },
+  {
+    "task_id": "weather_most_rainfall_city",
+    "status": "answered",
+    "n_attempts": 1,
+    "n_repairs": 0,
+    "answers": {
+      "top_city": "Mumbai",
+      "temp_std": "7.26"
+    },
+    "event_types": [
+      "run_started",
+      "profile",
+      "llm_request",
+      "llm_response",
+      "code",
+      "static_check",
+      "exec_started",
+      "exec_result",
+      "llm_request",
+      "llm_response",
+      "answer",
+      "evidence",
+      "run_finished"
+    ]
+  }
+]

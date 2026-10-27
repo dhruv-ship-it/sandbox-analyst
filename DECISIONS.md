@@ -3322,3 +3322,76 @@ self-evidently true without checking it against the current suite --
 rejected; the honest move when a resume bullet's claim turns out to be
 borderline under one reasonable reading (the default run's own count)
 is to write down both readings, not quietly round up.
+
+## D-116 — Replay regression suite: `RecordingSandbox`/`ReplaySandbox` mirror D-038, 10 tasks reuse the grader's tolerant match against host-computed truth
+
+**Date:** 2026-10-27
+
+**Decision:** `src/sandbox_analyst/sandbox/record.py` adds
+`RecordingSandbox`/`ReplaySandbox`/`SandboxCassetteMiss`, structured
+exactly like `llm/record.py`'s `RecordingLLM`/`ReplayLLM`/`CassetteMiss`
+(D-038): a cassette entry is keyed by the sha256 of a canonical JSON
+encoding of `(code, [(upload name, upload size), ...])` -- the upload
+*bytes* are never part of the key, only name+size, per the task's own
+spec. A cassette entry stores every `ExecResult` field; each image is
+stored as both a sha256 (for quick auditing) and the actual PNG bytes
+(base64), since the agent's `_write_artifacts` step needs real bytes to
+write during replay, not just a hash.
+
+Ten hand-written tasks (`tests/replay/tasks.json`) run over the three
+existing synthetic example datasets (`sales.csv`/`students.csv`/
+`weather.csv` -- never DABench), each carrying a DABench-style
+`answer_format` string (e.g. `"@total_revenue[number, rounded to 2
+decimal places]"`) purely so `agent.answer.match_names_to_format`
+pins a predictable answer name -- without that, the model is free to
+name its own answer keys, which would make "does this match the
+host-computed truth" unreliable to check by name. The truth itself
+comes from `scripts/make_replay_truth.py`, one pandas function per
+task, run once over the same CSVs and written into each task's
+`"expected"` field -- never executed by the agent, never model-written
+(CLAUDE.md rule 1), and checked against the real agent run's answer via
+`bench.grader.grade_question(..., mode="tolerant")` -- the exact
+function/mode the real DABench grading already uses, rather than a
+second, bespoke matching rule invented just for this suite.
+
+`sa record-replay` (manual, live, Groq + Modal) ran all 10 tasks once:
+**0 of 10 needed a repair** (every task answered on attempt 1), using
+20 LLM requests and 10 sandbox runs -- well inside the 40-request/
+25-run budget this task was given. The command's own credential scan
+(`ak-`, `as-`, `gsk_`, `nvapi-` substrings) found nothing in either
+cassette. `tests/replay/test_replay.py` (offline, no network) replays
+every task through the real `run_agent` and asserts the final status,
+final answers, event-type sequence, and truth-match all hold; two
+tests (`..._catches_a_broken_evidence_check`,
+`..._catches_a_broken_answer_parser`) monkeypatch
+`agent.loop.check_evidence`/`agent.loop.parse_final_answer` and assert
+the comparison then reports "not ok" -- proof the suite isn't just
+rubber-stamping the happy path. A broken control path very likely needs
+an LLM/sandbox call the frozen cassette never recorded (a different
+repair-attempt prompt, say), so `replay_task` treats
+`CassetteMiss`/`SandboxCassetteMiss` as "not ok" rather than letting it
+crash the test uninformatively -- the suite needing an unrecorded call
+is itself evidence that behavior changed. `docs/testing.md` documents
+what the suite covers (regressions in our own agent/evidence/parsing
+code) and doesn't (model quality -- that's `docs/results-heldout.md`'s
+job), and that any prompt change breaks cassette keys by design,
+forcing a reviewed `uv run sa record-replay` re-record rather than a
+silent pass against stale data.
+
+**Why:** Reusing D-038's exact cassette shape for sandboxes (rather
+than inventing a different record/replay pattern) keeps both record/
+replay pairs easy to reason about together. Reusing the real grader's
+tolerant-match function (rather than writing new comparison logic) means
+this suite's notion of "correct" never silently drifts from the
+benchmark's own.
+
+**Alternatives rejected:** Letting the model name its own answers freely
+(no `answer_format`) -- rejected, makes matching against host-computed
+truth by name unreliable. Hand-typing the expected truth values directly
+into `tasks.json` instead of a committed pandas script -- rejected,
+same reasoning as D-040/D-042: a number that was actually computed by a
+runnable, auditable script is more trustworthy than one recalled or
+hand-calculated. Letting a broken-control-flow replay raise an uncaught
+`CassetteMiss` straight out of the test -- rejected, a bare traceback is
+a worse regression signal than an explicit "not ok" the test can assert
+on and explain.

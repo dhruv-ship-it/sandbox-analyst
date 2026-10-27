@@ -23,6 +23,7 @@ from sandbox_analyst.config import Settings
 from sandbox_analyst.llm import LLMConfigError, make_llm
 from sandbox_analyst.llm.usage import DEFAULT_USAGE_LOG_PATH
 from sandbox_analyst.redteam import run_redteam
+from sandbox_analyst.replay import run_record_replay, scan_cassette_files
 from sandbox_analyst.sandbox import make_sandbox
 
 LEVEL_ORDER = ["easy", "medium", "hard"]
@@ -315,6 +316,36 @@ def cmd_redteam(run_name: str, concurrency: int) -> int:
     return 1 if n_leaks > 0 else 0
 
 
+def cmd_record_replay() -> int:
+    """LIVE: record the replay regression cassettes (real LLM + real sandbox, costs money)."""
+    settings = Settings()
+    try:
+        outcome = run_record_replay(settings=settings)
+    except LLMConfigError as exc:
+        print(f"LLM configuration error: {exc}", file=sys.stderr)  # noqa: T201
+        return 1
+
+    leaks = scan_cassette_files([outcome.llm_cassette_path, outcome.sandbox_cassette_path])
+    if leaks:
+        print(  # noqa: T201
+            "refusing: credential-shaped strings found in the recorded cassette(s):",
+            file=sys.stderr,
+        )
+        for leak in leaks:
+            print(f"  {leak}", file=sys.stderr)  # noqa: T201
+        return 1
+
+    for r in outcome.results:
+        print(f"  {r.task_id}: status={r.status} attempts={r.n_attempts}")  # noqa: T201
+    print(  # noqa: T201
+        f"{outcome.n_needed_repair}/{len(outcome.results)} tasks needed at least one repair"
+    )
+    print(f"wrote {outcome.llm_cassette_path}")  # noqa: T201
+    print(f"wrote {outcome.sandbox_cassette_path}")  # noqa: T201
+    print(f"wrote {outcome.recorded_results_path}")  # noqa: T201
+    return 0
+
+
 def configure_app_logging() -> None:
     """Send this project's own loggers (`sandbox_analyst.*`) to stdout.
 
@@ -390,6 +421,11 @@ def build_parser() -> argparse.ArgumentParser:
     redteam_parser.add_argument("--run-name", required=True)
     redteam_parser.add_argument("--concurrency", type=int, default=1)
 
+    subparsers.add_parser(
+        "record-replay",
+        help="LIVE: record the replay regression cassettes (real LLM + real sandbox, costs money)",
+    )
+
     return parser
 
 
@@ -415,6 +451,8 @@ def main(argv: list[str] | None = None) -> int:
         return cmd_serve()
     if args.command == "redteam":
         return cmd_redteam(args.run_name, args.concurrency)
+    if args.command == "record-replay":
+        return cmd_record_replay()
     parser.error(f"unknown command: {args.command}")
     return 2
 

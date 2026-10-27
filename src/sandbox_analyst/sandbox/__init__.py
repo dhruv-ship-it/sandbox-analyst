@@ -16,6 +16,7 @@ from .base import (
 )
 from .factory import make_sandbox
 from .fake import FakeSandbox
+from .record import RecordingSandbox, ReplaySandbox, SandboxCassetteMiss
 
 __all__ = [
     "WORKDIR",
@@ -32,4 +33,7 @@ __all__ = [
     "validate_upload_size",
     "FakeSandbox",
     "make_sandbox",
+    "RecordingSandbox",
+    "ReplaySandbox",
+    "SandboxCassetteMiss",
 ]

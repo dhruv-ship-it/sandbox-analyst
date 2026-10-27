@@ -1,0 +1,115 @@
+[
+  {
+    "id": "sales_total_revenue",
+    "category": "aggregation",
+    "dataset": "sales.csv",
+    "question": "What is the total revenue (units multiplied by unit_price, summed across all rows, ignoring rows where units is missing)? Round to 2 decimal places.",
+    "constraints": "",
+    "answer_format": "@total_revenue[number, rounded to 2 decimal places]",
+    "expected": {
+      "total_revenue": "1074120.09"
+    }
+  },
+  {
+    "id": "sales_highest_avg_price_product",
+    "category": "aggregation",
+    "dataset": "sales.csv",
+    "question": "Which product has the highest average unit_price? Report the product name and its average unit_price rounded to 2 decimal places.",
+    "constraints": "",
+    "answer_format": "@product[string], @avg_price[number, rounded to 2 decimal places]",
+    "expected": {
+      "product": "Widget A",
+      "avg_price": "296.10"
+    }
+  },
+  {
+    "id": "sales_west_total_units",
+    "category": "filtering",
+    "dataset": "sales.csv",
+    "question": "What is the total number of units sold in the West region, ignoring rows where units is missing?",
+    "constraints": "",
+    "answer_format": "@west_units[integer]",
+    "expected": {
+      "west_units": "1020"
+    }
+  },
+  {
+    "id": "sales_region_bar_chart",
+    "category": "chart",
+    "dataset": "sales.csv",
+    "question": "Plot total units sold per region (ignoring rows where units is missing) as a bar chart, and report which region has the highest total units.",
+    "constraints": "",
+    "answer_format": "@top_region[string]",
+    "expected": {
+      "top_region": "North"
+    }
+  },
+  {
+    "id": "students_avg_math_score",
+    "category": "filtering",
+    "dataset": "students.csv",
+    "question": "What is the average score for the Math subject across all students? Round to 2 decimal places.",
+    "constraints": "",
+    "answer_format": "@avg_math_score[number, rounded to 2 decimal places]",
+    "expected": {
+      "avg_math_score": "78.10"
+    }
+  },
+  {
+    "id": "students_highest_attendance_class",
+    "category": "aggregation",
+    "dataset": "students.csv",
+    "question": "Which class has the highest average attendance? Report the class name and its average attendance rounded to 2 decimal places.",
+    "constraints": "",
+    "answer_format": "@class_name[string], @avg_attendance[number, rounded to 2 decimal places]",
+    "expected": {
+      "class_name": "9B",
+      "avg_attendance": "84.63"
+    }
+  },
+  {
+    "id": "students_score_histogram",
+    "category": "chart",
+    "dataset": "students.csv",
+    "question": "Plot a histogram of all student scores across every subject, and report the total number of score values plotted.",
+    "constraints": "",
+    "answer_format": "@n_scores[integer]",
+    "expected": {
+      "n_scores": "60"
+    }
+  },
+  {
+    "id": "students_score_attendance_corr",
+    "category": "statistics",
+    "dataset": "students.csv",
+    "question": "What is the Pearson correlation coefficient between score and attendance across all rows? Round to 3 decimal places.",
+    "constraints": "",
+    "answer_format": "@correlation[number, rounded to 3 decimal places]",
+    "expected": {
+      "correlation": "0.003"
+    }
+  },
+  {
+    "id": "weather_avg_temp_mumbai",
+    "category": "filtering",
+    "dataset": "weather.csv",
+    "question": "What was the average temperature (temp_c) for Mumbai over the period? Round to 2 decimal places.",
+    "constraints": "",
+    "answer_format": "@avg_temp_mumbai[number, rounded to 2 decimal places]",
+    "expected": {
+      "avg_temp_mumbai": "23.67"
+    }
+  },
+  {
+    "id": "weather_most_rainfall_city",
+    "category": "statistics",
+    "dataset": "weather.csv",
+    "question": "Which city had the most total rainfall over the period? Report the city name and the sample standard deviation of its own daily temperature, rounded to 2 decimal places.",
+    "constraints": "",
+    "answer_format": "@top_city[string], @temp_std[number, rounded to 2 decimal places]",
+    "expected": {
+      "top_city": "Mumbai",
+      "temp_std": "7.26"
+    }
+  }
+]
