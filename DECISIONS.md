@@ -3292,3 +3292,33 @@ leaving them scattered across docs a casual reader won't open.
 instead of naming them inline -- rejected, that's exactly the kind of
 caveat a reader skips past; naming each one explicitly (even briefly)
 is the actual point.
+
+## D-115 — Resume numbers get written-down exact definitions before being treated as settled
+
+**Date:** 2026-10-27
+
+**Decision:** `notes/INTERVIEW.md` (private, gitignored) now pins the
+exact metric behind every number in the project lead's finalized
+resume bullets -- "82%" = pooled tolerant ABQ 0.818 (strict: 75.0%);
+"77% single-shot" = k=1 truncation of the same recorded traces, not a
+separate run (tolerant 0.765, rounds to 77%); "87%" = 39 of the 45
+attempt-1-errored tasks (39/45 = 0.867); "41 of 42" = the final
+red-team tally, with `B:question_fake_system` named as the one
+failure. Bullet 3's "650+ automated tests" claim was checked against
+the live suite rather than assumed: `uv run pytest --collect-only`
+reports 665 tests total (16 `live`-marked and deselected by default),
+so the *total* suite size clears "650+" but the default (non-`live`)
+run alone -- 649 -- does not quite.
+
+**Why:** A resume number repeated confidently in an interview needs to
+survive "what exactly does that mean" and "what's the stricter/other
+framing" without hedging or inventing an answer on the spot -- this is
+the same discipline D-106 and D-111's paired-lift work already apply
+to public-facing numbers, extended to the private interview-prep
+numbers that will actually get said out loud.
+
+**Alternatives rejected:** Treating "650+ automated tests" as
+self-evidently true without checking it against the current suite --
+rejected; the honest move when a resume bullet's claim turns out to be
+borderline under one reasonable reading (the default run's own count)
+is to write down both readings, not quietly round up.
