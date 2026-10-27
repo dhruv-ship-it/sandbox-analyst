@@ -3395,3 +3395,44 @@ hand-calculated. Letting a broken-control-flow replay raise an uncaught
 `CassetteMiss` straight out of the test -- rejected, a bare traceback is
 a worse regression signal than an explicit "not ok" the test can assert
 on and explain.
+
+## D-117 — Azure auto-redeploy CI job: reviewed against spec, already compliant; only the docs needed filling in
+
+**Date:** 2026-10-27
+
+**Decision:** Reviewed the existing `deploy-azure` job in
+`.github/workflows/ci.yml` (added earlier, `5c93c47`) against this
+task's four requirements -- runs only after `image` succeeds on a push
+to `main`; deploys the exact SHA tag `image` just built, never
+`:latest`; uses `azure/webapps-deploy` with the publish profile from
+secret `AZURE_WEBAPP_PUBLISH_PROFILE_SA` and the app name from variable
+`AZURE_WEBAPP_NAME_SA`; skips cleanly (prints why, doesn't fail) when
+either is unset. All four already held -- `needs: image` plus `image`'s
+own `if: github.event_name == 'push' && github.ref ==
+'refs/heads/main'` already means a skipped `image` job (any other
+trigger) skips `deploy-azure` too, by GitHub Actions' own default
+`needs` semantics, with no explicit `if` needed on `deploy-azure`
+itself. No code changed.
+
+`docs/deploy.md`'s setup steps did need filling in: added "turn on SCM
+Basic Auth Publishing Credentials" as an explicit step before "get
+publish profile" (newer App Service plans ship this off by default,
+and `azure/webapps-deploy`'s publish-profile auth silently can't work
+without it), "delete the downloaded XML file" as its own step, and a
+paragraph on the publish-profile-vs-OIDC security trade-off and why
+this project's deploy guide takes the simpler (publish-profile) route
+on Azure for Students.
+
+**Why:** "review the existing job and fix whatever doesn't meet that"
+doesn't obligate a code change when the job already meets the spec --
+reporting "already correct" honestly, rather than making a
+no-op-equivalent edit just to have something to show, is the accurate
+account of what reviewing it found.
+
+**Alternatives rejected:** Switching the deploy mechanism to OIDC
+(Azure AD workload identity federation) outright, since it's strictly
+more secure -- rejected as out of scope for this task (which asked to
+review the existing guarded job, not redesign the deploy mechanism) and
+inconsistent with this guide's existing by-hand, minimal-portal-steps
+style; the trade-off is instead written down explicitly so the choice
+is deliberate and documented, not silently left unconsidered.

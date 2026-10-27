@@ -122,21 +122,48 @@ bar). App Service pulls `:latest` fresh on every restart.
 **To turn on continuous deployment instead** (so a push to `main`
 redeploys automatically, with no manual Restart click):
 
-1. Web App → **Overview** → **Get publish profile** (downloads an XML
-   file).
-2. GitHub → this repo → **Settings** → **Secrets and variables** →
+1. Web App → **Configuration** → **General settings** → turn **SCM
+   Basic Auth Publishing Credentials** **On** → **Save**. Newer App
+   Service plans ship with this off by default, and the publish
+   profile below doesn't work without it -- `azure/webapps-deploy`
+   authenticates with exactly the username/password pair this setting
+   gates.
+2. Web App → **Overview** → **Get publish profile** (downloads an XML
+   file containing that username/password pair).
+3. GitHub → this repo → **Settings** → **Secrets and variables** →
    **Actions** → **New repository secret** → name it
    `AZURE_WEBAPP_PUBLISH_PROFILE_SA`, paste the whole downloaded XML as
    the value.
-3. Same page, **Variables** tab → **New repository variable** → name it
+4. Same page, **Variables** tab → **New repository variable** → name it
    `AZURE_WEBAPP_NAME_SA`, value the exact Web App name from step 2
    above (e.g. `sandbox-analyst-<suffix>`) -- this one is not a secret.
-4. The next push to `main` will have CI's `deploy-azure` job actually
+5. **Delete the downloaded XML file from your machine.** It's no longer
+   needed once it's pasted into the GitHub secret, and it's a live
+   credential sitting in your Downloads folder otherwise.
+6. The next push to `main` will have CI's `deploy-azure` job actually
    deploy, instead of printing "skipped" in its step summary.
 
 Leaving either one unset is completely fine -- the `deploy-azure` job
 no-ops cleanly and the manual-Restart flow keeps working exactly as
 before.
+
+**Security trade-off: publish profile vs. OIDC.** A publish profile is
+a long-lived username/password pair with no expiry -- if the GitHub
+secret storing it ever leaked, whoever has it can redeploy (or read the
+app's files over FTP) until the profile is manually reset. The
+alternative, Azure AD workload identity federation (OIDC), has GitHub
+Actions exchange a short-lived, repo/branch-scoped token for Azure
+credentials on every run, with no secret stored anywhere -- strictly
+better, but it requires registering an Azure AD App, creating a
+federated identity credential tied to this exact repo/branch, and
+granting that app `Contributor` (or a narrower custom role) on the Web
+App, several more manual portal steps than this guide's existing
+by-hand, minimal-infra style asks for anywhere else. For a single
+personal project on Azure for Students, deploying to one app this
+guide's author controls end to end, the operational simplicity of a
+publish profile was judged worth the weaker credential model; a team
+or production setting with more to lose from a leaked secret should
+prefer OIDC instead.
 
 ## 6. Verify the live URL
 
