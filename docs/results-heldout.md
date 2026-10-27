@@ -58,12 +58,12 @@ repair budget (D-014):
 
 ### Paired lift, k=4 minus k=1
 
-Computed separately from the same recorded attempts (paired by question,
-pooled across the 3 runs, 10,000-resample bootstrap over questions — the
-same resampling scheme `bench.stats.paired_bootstrap_ci` already uses
-elsewhere in this project, D-062), since `sa report`'s own ablation table
-reports each *k*'s CI independently rather than the paired difference
-between two of its rows:
+Produced by `uv run sa report test-v2-r1 test-v2-r2 test-v2-r3` itself (the
+same command that built every other number on this page) — paired by
+question, pooled across the 3 runs, 10,000-resample bootstrap over
+questions, the same resampling scheme `bench.stats.paired_bootstrap_ci`
+already uses elsewhere in this project (D-062), now via
+`bench.report.paired_lift` (D-112):
 
 | Mode | Paired lift (ABQ) | 95% CI |
 |---|---|---|

@@ -201,6 +201,75 @@ def ablation_report(rows_by_run: dict[str, list[dict]], labels: dict[int, Label]
     }
 
 
+# ---- paired lift between two ablation depths (e.g. k=4 vs k=1) ----
+
+
+def _lift_statistic(pairs: list[tuple[float, float]]) -> float:
+    return mean([hi for _, hi in pairs]) - mean([lo for lo, _ in pairs])
+
+
+def paired_lift(
+    rows_by_run: dict[str, list[dict]],
+    labels: dict[int, Label],
+    mode: Mode,
+    key_lo: AblationKey,
+    key_hi: AblationKey,
+) -> dict:
+    """Paired ABQ lift (key_hi minus key_lo), paired by question across every pooled run.
+
+    Reuses `stats.paired_bootstrap_ci`'s resampling-by-question contract with a
+    custom statistic over (lo, hi) tuples instead of its default `mean` -- the
+    same composition D-111 used from outside the package before this function
+    existed.
+    """
+    grades_lo_by_run = {
+        name: _grade_rows(rows, labels, mode, _ablation_answer_fn(key_lo))
+        for name, rows in rows_by_run.items()
+    }
+    grades_hi_by_run = {
+        name: _grade_rows(rows, labels, mode, _ablation_answer_fn(key_hi))
+        for name, rows in rows_by_run.items()
+    }
+    run_names = list(rows_by_run)
+    common_ids = (
+        sorted(
+            set.intersection(*(set(g) for g in grades_lo_by_run.values()))
+            & set.intersection(*(set(g) for g in grades_hi_by_run.values()))
+        )
+        if run_names
+        else []
+    )
+
+    rows = [
+        [
+            (
+                1.0 if grades_lo_by_run[r][q].all_correct else 0.0,
+                1.0 if grades_hi_by_run[r][q].all_correct else 0.0,
+            )
+            for r in run_names
+        ]
+        for q in common_ids
+    ]
+    flat = [pair for row in rows for pair in row]
+
+    return {
+        "key_lo": key_lo,
+        "key_hi": key_hi,
+        "n_questions": len(common_ids),
+        "lift": _lift_statistic(flat) if flat else 0.0,
+        "lift_ci": paired_bootstrap_ci(rows, statistic=_lift_statistic) if rows else (0.0, 0.0),
+    }
+
+
+def paired_lift_report(
+    rows_by_run: dict[str, list[dict]],
+    labels: dict[int, Label],
+    key_lo: AblationKey = "k=1",
+    key_hi: AblationKey = "k=4",
+) -> dict:
+    return {mode: paired_lift(rows_by_run, labels, mode, key_lo, key_hi) for mode in MODES}
+
+
 # ---- errors ----
 
 
@@ -358,6 +427,7 @@ def build_report(
     report = {
         "run_names": run_names,
         **_level_block(rows_by_run, labels),
+        "paired_lift": paired_lift_report(rows_by_run, labels),
         "by_level": {
             level: _level_block(_filter_level(rows_by_run, level), labels) for level in LEVELS
         },
@@ -411,6 +481,17 @@ def render_markdown(report: dict) -> str:
             ci = pooled["abq_ci"]
             lines.append(f"| {key} | {pooled['abq']:.3f} | {ci[0]:.3f}-{ci[1]:.3f} |")
         lines.append("")
+
+    lines.append("## Paired lift")
+    for mode in MODES:
+        lift = report["paired_lift"][mode]
+        ci = lift["lift_ci"]
+        lines.append(
+            f"- {mode}, {lift['key_hi']} minus {lift['key_lo']}: "
+            f"{lift['lift']:+.3f} (95% CI {ci[0]:+.3f}-{ci[1]:+.3f}, "
+            f"n={lift['n_questions']})"
+        )
+    lines.append("")
 
     errors = report["errors"]
     lines.append("## Errors")

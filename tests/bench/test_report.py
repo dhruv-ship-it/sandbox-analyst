@@ -14,6 +14,8 @@ from sandbox_analyst.bench.report import (
     failure_taxonomy,
     load_run_results,
     metric_block,
+    paired_lift,
+    paired_lift_report,
     truncated_answer_at_k,
     unverified_single_shot_answer,
     write_report,
@@ -283,6 +285,92 @@ def test_metric_block_pools_only_common_question_ids_across_runs():
     rows2 = [_row(1, final_answers=[{"name": "x", "value": "1"}])]  # missing id 2
     block = metric_block({"r1": rows1, "r2": rows2}, labels, "strict", lambda r: r["final_answers"])
     assert block["pooled"]["n_questions"] == 1
+
+
+# ---- paired_lift: k=4 vs k=1, paired by question across pooled runs ----
+
+
+def test_paired_lift_point_estimate_matches_hand_computation():
+    labels = {1: _label(1, [("x", "1")]), 2: _label(2, [("x", "1")])}
+    # Question 1: k=1 wrong, k=4 right (a repair recovers it). Question 2: both right.
+    rows = {
+        "r1": [
+            _row(
+                1,
+                attempts=[
+                    _attempt(1, unverified=[{"name": "x", "value": "9"}]),
+                    _attempt(4, evidenced=[{"name": "x", "value": "1"}]),
+                ],
+            ),
+            _row(2, attempts=[_attempt(1, evidenced=[{"name": "x", "value": "1"}])]),
+        ]
+    }
+    result = paired_lift(rows, labels, "strict", "k=1", "k=4")
+    assert result["n_questions"] == 2
+    assert result["lift"] == pytest.approx(0.5)  # (1.0 - 0.0) / 2 questions
+    lo, hi = result["lift_ci"]
+    assert -1.0 <= lo <= result["lift"] <= hi <= 1.0
+
+
+def test_paired_lift_is_zero_when_k1_and_k4_always_agree():
+    labels = {1: _label(1, [("x", "1")])}
+    rows = {"r1": [_row(1, attempts=[_attempt(1, evidenced=[{"name": "x", "value": "1"}])])]}
+    result = paired_lift(rows, labels, "strict", "k=1", "k=4")
+    assert result["lift"] == pytest.approx(0.0)
+    assert result["lift_ci"] == (pytest.approx(0.0), pytest.approx(0.0))
+
+
+def test_paired_lift_pools_paired_questions_across_runs():
+    labels = {1: _label(1, [("x", "1")])}
+    rows = {
+        "r1": [
+            _row(
+                1,
+                attempts=[
+                    _attempt(1, unverified=[{"name": "x", "value": "9"}]),
+                    _attempt(4, evidenced=[{"name": "x", "value": "1"}]),
+                ],
+            )
+        ],
+        "r2": [_row(1, attempts=[_attempt(1, evidenced=[{"name": "x", "value": "1"}])])],
+    }
+    result = paired_lift(rows, labels, "strict", "k=1", "k=4")
+    # One question, but 2 (lo, hi) pairs pooled in (one per run): (0,1) and (1,1).
+    assert result["n_questions"] == 1
+    assert result["lift"] == pytest.approx(0.5)
+
+
+def test_paired_lift_of_no_common_questions_is_zero():
+    assert paired_lift({}, {}, "strict", "k=1", "k=4") == {
+        "key_lo": "k=1",
+        "key_hi": "k=4",
+        "n_questions": 0,
+        "lift": 0.0,
+        "lift_ci": (0.0, 0.0),
+    }
+
+
+def test_paired_lift_report_covers_both_modes_with_k1_vs_k4_default():
+    labels = {1: _label(1, [("x", "1")])}
+    rows = {"r1": [_row(1, attempts=[_attempt(1, evidenced=[{"name": "x", "value": "1"}])])]}
+    report = paired_lift_report(rows, labels)
+    assert set(report) == {"strict", "tolerant"}
+    for mode in ("strict", "tolerant"):
+        assert report[mode]["key_lo"] == "k=1"
+        assert report[mode]["key_hi"] == "k=4"
+
+
+def test_build_report_includes_paired_lift(tmp_path):
+    eval_dir = tmp_path / "eval"
+    labels_path = tmp_path / "labels.jsonl"
+    labels_path.write_text('{"id": 1, "common_answers": [["x", "1"]]}\n', encoding="utf-8")
+    _write_run(
+        eval_dir,
+        "r1",
+        [_row(1, final_answers=[{"name": "x", "value": "1"}], attempts=[_attempt(1)])],
+    )
+    report = build_report(["r1"], eval_dir=eval_dir, labels_path=labels_path)
+    assert set(report["paired_lift"]) == {"strict", "tolerant"}
 
 
 # ---- end-to-end: build_report / write_report on a tiny synthetic run ----

@@ -3166,3 +3166,51 @@ a reporting feature's shape off a metric this task's own prompt asked
 for is a smaller, more honest justification for scope creep than
 inventing a reason to add it speculatively. Extending `bench/report.py`
 during Task 3 itself — rejected outright by freeze discipline.
+
+## D-112 — `paired_lift` is promoted into `bench/report.py` itself, superseding D-111's one-off script
+
+**Date:** 2026-10-27
+
+**Decision:** `bench/report.py` now has a public `paired_lift(rows_by_run,
+labels, mode, key_lo, key_hi)` function and a `paired_lift_report(...)`
+wrapper (default `key_lo="k=1"`, `key_hi="k=4"`), included in
+`build_report`'s top-level output and rendered in `sa report`'s
+`report.md` under its own "Paired lift" section. It composes the exact
+pieces D-111 already named as reusable (`_grade_rows`,
+`_ablation_answer_fn`, `stats.paired_bootstrap_ci`) with a custom
+statistic -- `mean(hi values) - mean(lo values)` over per-question
+`(lo, hi)` pairs, pooled across every run passed to `sa report` -- rather
+than the two independent per-*k* CIs `ablation_report` already produces.
+Running `uv run sa report test-v2-r1 test-v2-r2 test-v2-r3` after adding
+this reproduces `docs/results-heldout.md`'s published paired lift exactly:
+strict +0.051 (95% CI 0.027-0.080), tolerant +0.053 (95% CI
+0.027-0.082).
+
+**Why:** D-111 deliberately kept this computation as an uncommitted,
+outside-the-package script because the held-out run was frozen at the
+time and extending `bench/report.py` mid-freeze was off the table. That
+constraint is gone now (this task is documentation/reproducibility
+work on the already-frozen, already-published numbers -- it changes no
+agent/sandbox/checker/API behavior and runs no new LLM or sandbox
+calls), so the better home for a number this project reports is the
+tool that reports every other number, not a script that only one person
+ever ran once. A real bug was caught while wiring this up: the first
+version of the custom statistic unpacked each `(lo, hi)` tuple as
+`_, lo` for the "lo" list, which actually binds `lo` to the tuple's
+*second* element -- so both the "lo" and "hi" lists silently held the
+same (hi) values, and the lift always printed as `+0.000` despite
+`n_questions=183` looking correct. Caught by actually running the
+command against the real frozen runs under `runs/eval/test-v2-r*`
+(gitignored, already on disk from the frozen evaluation session) and
+noticing the published +0.051/+0.053 didn't reproduce -- not by code
+review alone.
+
+**Alternatives rejected:** Leaving the one-off script as the permanent
+source of this number — rejected, per Task 1's own instructions:
+a number this central to the headline results should be reproducible by
+anyone who clones the repo and has the run data, not regenerated from a
+script that was never committed. Making `paired_lift` take only a fixed
+`(k=1, k=4)` pair instead of arbitrary `key_lo`/`key_hi` — rejected, the
+task's own wording ("e.g. k=4 vs k=1") asked for a general comparison
+between ablation depths; the fixed pair only lives in `paired_lift_
+report`'s defaults, which `build_report` uses for the headline number.
