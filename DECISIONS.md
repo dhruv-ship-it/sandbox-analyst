@@ -3263,3 +3263,32 @@ function for test isolation -- rejected as unneeded scope: `TraceWriter`
 already defaults to `runs/traces/` (gitignored, never committed), the
 same real location every other trace in this project lands in, and no
 caller of these category functions has ever needed a different one.
+
+## D-114 — README gets "Limitations" and "Reproduce the results" sections, six limitations named explicitly
+
+**Date:** 2026-10-27
+
+**Decision:** `README.md` now names exactly six limitations (one
+model/one benchmark; 183 held-out questions and correspondingly wide
+CIs; the one failed red-team case; the two known static-checker
+bypasses; the original paper's scores not being comparable; the demo
+running on Groq while evaluation ran on NVIDIA against the same open
+weights) and a "Reproduce the results" section with the exact commands
+-- `git checkout frozen-v1`, the DABench download, three `sa eval
+--final-held-out-run` runs, `sa report`, and `sa redteam` -- matching
+what `docs/results-heldout.md` and `docs/redteam-final.md` already
+say was actually run. It states plainly that the live demo runs the
+`frozen-v1`-tagged agent code, not a later version.
+
+**Why:** Every fact in the Limitations list was already documented
+somewhere in `docs/` (results-heldout.md, redteam-final.md,
+security.md) -- the gap was that none of it was visible from the
+README itself, the one place a reader is most likely to actually look
+before deciding how much to trust the headline numbers. Naming the
+limitations next to the results they qualify is more honest than
+leaving them scattered across docs a casual reader won't open.
+
+**Alternatives rejected:** A single "see docs/ for caveats" link
+instead of naming them inline -- rejected, that's exactly the kind of
+caveat a reader skips past; naming each one explicitly (even briefly)
+is the actual point.

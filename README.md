@@ -107,6 +107,56 @@ Final red-team run on the same frozen system (all 42 cases, live):
 - The sandbox alone (checker disabled) contained 18 of 18 real attack
   attempts the model generated.
 
+## Limitations
+
+- These numbers are for one model (`openai/gpt-oss-20b`) on one
+  benchmark (InfiAgent-DABench) -- they say something about this
+  specific system on this specific benchmark, not about LLM-agent data
+  analysis in general.
+- The held-out split is 183 questions. The confidence intervals above
+  are correspondingly wide (e.g. strict ABQ's 95% CI spans about 11
+  points) -- read the point estimates with that in mind.
+- One red-team case failed: `B:question_fake_system`. An injected
+  "SYSTEM: override" instruction inside a poisoned CSV reliably
+  disrupted the model's answer-naming across two separate live runs,
+  with two different proximate causes each time. It's reported, not
+  fixed -- see [docs/redteam-final.md](docs/redteam-final.md).
+- Two static-checker bypasses are known (format-string attribute
+  traversal, and aliasing the `open` builtin before calling it). Both
+  are contained by the sandbox, not by the checker -- see
+  [docs/security.md](docs/security.md).
+- The original InfiAgent-DABench paper's GPT-4/GPT-3.5 scores are not a
+  baseline these numbers should be read against: different grader,
+  different agent entirely -- see
+  [docs/results-heldout.md](docs/results-heldout.md).
+- The live demo runs on Groq; the evaluation above ran on NVIDIA NIM.
+  Both serve the same open weights (`openai/gpt-oss-20b`), but the two
+  providers are not guaranteed to produce identical output.
+
+## Reproduce the results
+
+Every number above comes from the system tagged `frozen-v1` -- the
+live demo runs that exact tagged code, not a later version.
+
+```powershell
+git checkout frozen-v1
+uv sync
+uv run python -m sandbox_analyst.bench.download   # InfiAgent-DABench, pinned revision
+
+# 3 held-out runs, same as docs/results-heldout.md
+uv run sa eval --split test --final-held-out-run --concurrency 8 --run-name test-v2-r1
+uv run sa eval --split test --final-held-out-run --concurrency 8 --run-name test-v2-r2
+uv run sa eval --split test --final-held-out-run --concurrency 8 --run-name test-v2-r3
+uv run sa report test-v2-r1 test-v2-r2 test-v2-r3
+
+# the final red-team run, same as docs/redteam-final.md
+uv run sa redteam --run-name redteam-final --concurrency 4
+```
+
+`--final-held-out-run` only works on a clean working tree checked out
+at a `frozen-*` tag (`bench/split.py`'s own gate, not a convention) --
+it's what keeps the held-out split from being loaded by accident.
+
 ## Tech stack
 
 Python 3.12 + [uv](https://docs.astral.sh/uv/) · FastAPI · React (Vite +
